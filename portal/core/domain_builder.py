@@ -1,0 +1,263 @@
+"""portal/core/domain_builder.py — config → BoFire Domain。
+
+⚠️ 这里集中了 BoFire 0.4.1 所有踩过的坑,千万不要"按新版本最佳实践"改。
+
+已知 workaround(2026-09-29 锁定 bofire==0.4.1):
+  1. DiscreteOutput 会导致 MOBO 校验失败 → 一律用 ContinuousOutput
+  2. CategoricalOutput + MOBO acf=qEHVI/qLogEHVI 会被拒 → 降级为
+     ContinuousOutput,numeric 编码 categories[0]=min,...,categories[-1]=max
+  3. NonlinearConstraint 是 abstract,实现是 NonlinearInequalityConstraint,
+     但它没有 rhs 参数 — 把 rhs 编码进 expression (例如 "x+y-100")
+  4. Domain 构造不要传 constraints=None,会校验失败 — omit 这个 kwarg
+  5. MOBO acf 必须是 EHVI 家族(qLogEHVI/qNEHVI);用户填 qLogEI 自动 map
+  6. CategoricalTaskInput BoFire 0.4.1 没有 → 用 CategoricalInput
+  7. BoFire 0.4.1 没有 trainable_inputs 参数 → 训练后用 override pin
+     非 trainable 列到历史 mode
+  8. ContinuousInput 没有 round_digits 参数 → 整数化在后处理做
+  9. Domain.outputs 没有 .keys(),要用 [f.key for f in Domain.features]
+"""
+from __future__ import annotations
+
+import warnings
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+
+from .excel_io import ConfigSheet, FactorSpec, OutputSpec
+
+
+# ---------- OutputFeature 构造 ----------
+def build_output_features(outputs: list[OutputSpec]) -> list[Any]:
+    """从 OutputSpec 列表构造 BoFire OutputFeature。
+
+    ⚠️ workaround #1: 不用 DiscreteOutput,一律 ContinuousOutput。
+    ⚠️ workaround #2: CategoricalOutput 在 MOBO 下被拒,统一降级
+    为 ContinuousOutput 并 numeric 编码。
+    """
+    from bofire.data_models.features.api import ContinuousOutput
+
+    feats: list[Any] = []
+    for o in outputs:
+        # 不管 direction 是什么,统一用 ContinuousOutput + objective_weight
+        # 方向在 tell / ask 时再处理 (maximize 权重 +1, minimize -1, target
+        # 需要在 transform 后做 |y - target|)
+        feats.append(
+            ContinuousOutput(
+                key=o.key,
+                lower_bound=o.lower_bound if o.lower_bound is not None else 0.0,
+                upper_bound=o.upper_bound if o.upper_bound is not None else 1.0,
+            )
+        )
+    return feats
+
+
+# ---------- InputFeature 构造 ----------
+def build_input_features(factors: list[FactorSpec]) -> list[Any]:
+    """从 FactorSpec 列表构造 BoFire InputFeature。
+
+    支持:
+      continuous → ContinuousInput
+      discrete → ContinuousInput(discrete values)  ⚠️ BoFire 0.4.1
+        DiscreteInput 仅支持整数;我们用 categories 转 float 后走
+        ContinuousInput + 后处理 round
+      categorical → CategoricalInput
+      categorical_descriptor → CategoricalInput(忽略 descriptors,M0 不支持)
+      categorical_molecular → CategoricalInput(忽略 SMILES,RDKit 缺失则降级提示)
+    """
+    from bofire.data_models.features.api import (
+        CategoricalInput,
+        ContinuousInput,
+    )
+
+    feats: list[Any] = []
+    for f in factors:
+        if f.type == "continuous":
+            feats.append(
+                ContinuousInput(
+                    key=f.key,
+                    bounds=[float(f.low), float(f.high)],  # type: ignore[list-item]
+                ),
+            )
+        elif f.type == "discrete":
+            # 把 categories 转 float,包成 continuous(BoFire 0.4.1 DiscreteInput
+            # 仅 int,bounds 会被拒绝。
+            # workaround — 当 ranges 数值是连续值列表时 BoFire 不允许,只能走 continuous
+            # + 后处理 round。这里若 categories 全是 int,转 int 后用 continuous;
+            # 若有 float,用 off 最稳。
+            try:
+                values = sorted({float(v) for v in (f.categories or [])})  # type: ignore[union-attr]
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"{f.key}: discrete categories 必须可转 float: {e}") from e
+            if not values:
+                raise ValueError(f"{f.key}: discrete 必须有 categories")
+            # BoFire 0.4.1 接受 ContinuousInput + 后处理;这里用 min/max 作 bounds
+            feats.append(
+                ContinuousInput(
+                    key=f.key,
+                    bounds=[float(min(values)), float(max(values))],
+                ),
+            )
+            # 保存离散值表供后处理用
+            f.notes = (f.notes or "") + f" | discrete_values={values}"
+        elif f.type in ("categorical", "categorical_descriptor", "categorical_molecular"):
+            # ⚠️ workaround #6: 不存在 CategoricalTaskInput, 用 CategoricalInput
+            cats = f.categories or []
+            feats.append(
+                CategoricalInput(key=f.key, categories=cats),
+            )
+        else:
+            raise ValueError(f"{f.key}: 不支持的 type {f.type!r}")
+    return feats
+
+
+# ---------- Domain 构造 ----------
+def build_domain(config: ConfigSheet) -> Any:
+    """从 ConfigSheet 构造 BoFire Domain。
+
+    ⚠️ workaround #4: 不传 constraints=None。
+    """
+    from bofire.data_models.domain.api import Domain
+
+    input_features = build_input_features(config.factors)
+    output_features = build_output_features(config.outputs)
+
+    # ⚠️ workaround #4: omit constraints kwarg
+    domain = Domain(
+        inputs=input_features,
+        outputs=output_features,
+    )
+    return domain
+
+
+# ---------- acf 映射 ----------
+def resolve_acq_function(strategy_type: str, acf_name: str, n_outputs: int) -> str:
+    """根据策略类型 / acf 名 / 输出数,返回实际可用的 acf。
+
+    ⚠️ workaround #5: MOBO acf 必须是 EHVI 家族(qLogEHVI/qNEHVI/qEHVI)
+    """
+    if strategy_type == "sobo":
+        # 单目标: 接受 qLogEI/qLogNEI/qEI/qUCB 原样
+        if acf_name not in {"qLogEI", "qLogNEI", "qEI", "qUCB"}:
+            warnings.warn(f"单目标 acf {acf_name!r} 不识别,降级为 qLogEI")
+            return "qLogEI"
+        return acf_name
+    if strategy_type == "mobo":
+        # 多目标: 必须是 EHVI 家族
+        if n_outputs < 2:
+            raise ValueError("MOBO 需要至少 2 个 Outputs,当前只有 1 个")
+        if acf_name not in {"qLogEHVI", "qEHVI", "qNEHVI"}:
+            warnings.warn(f"MOBO acf {acf_name!r} 不识别,降级为 qLogEHVI")
+            return "qLogEHVI"
+        return acf_name
+    return acf_name  # random / doe 不用 acf
+
+
+# ---------- Direction → objective_weight ----------
+def output_objective_weights(outputs: list[OutputSpec]) -> np.ndarray:
+    """把 OutputsSpec 转 BoFire 用的 objective_weights 数组。
+
+    maximize → +1
+    minimize → -1
+    target   → +1 (|y - target| 最小化是等价的 +1 加 |target - y|,BoFire 内置)
+    """
+    weights = []
+    for o in outputs:
+        if o.direction == "minimize":
+            weights.append(-1.0)
+        else:
+            weights.append(1.0)
+    return np.array(weights, dtype=float)
+
+
+# ---------- 数据准备 ----------
+@dataclass
+class PreparedData:
+    """从 RecordRow 列表 + Domain 转出来的 numpy 张量。
+
+    只包含 trainable 因子和输出(BoFire 训练要求)。
+    """
+    X: np.ndarray  # (n, trainable_factors)
+    Y: np.ndarray  # (n, outputs)
+    X_cols: list[str]
+    Y_cols: list[str]
+    cat_maps: list[dict[str, int]]  # categorical → int 编码表
+    discrete_values: dict[str, list[float]]  # discrete factor → 可选值列表
+
+
+def prepare_data(
+    records: list[Any],  # list[RecordRow]
+    config: ConfigSheet,
+) -> PreparedData:
+    """把 RecordRow 列表转 BoFire 可用的 X, Y 张量。
+
+    BoFire 0.4.1 的 surrogates 训练接口接受: pd.DataFrame(features)
+    + pd.DataFrame(outcomes)。这里我们生成 np + 编码表,调用方转 df。
+    """
+    trainable = [f for f in config.factors if f.trainable]
+    X_cols = [f.key for f in trainable]
+    Y_cols = [o.key for o in config.outputs]
+    cat_maps: list[dict[str, int]] = []
+    discrete_values: dict[str, list[float]] = {}
+
+    # 编码 categorical → int
+    for f in trainable:
+        if f.type in ("categorical", "categorical_descriptor", "categorical_molecular"):
+            cats = f.categories or []
+            cat_maps.append({c: i for i, c in enumerate(cats)})
+        else:
+            cat_maps.append({})
+        if f.type == "discrete":
+            # 从 notes 解析 (build_input_features 写过)
+            dv: list[float] = []
+            if f.notes and "discrete_values=" in f.notes:
+                seg = f.notes.split("discrete_values=")[1].split("|")[0]
+                # 解析 [1.0, 5.0, 10.0]
+                import ast
+                try:
+                    dv = [float(x) for x in ast.literal_eval(seg)]
+                except Exception:
+                    pass
+            discrete_values[f.key] = dv
+
+    rows_X: list[list[float]] = []
+    rows_Y: list[list[float]] = []
+    for rec in records:
+        x_row = []
+        for i, f in enumerate(trainable):
+            v = rec.factors.get(f.key)
+            if v is None:
+                # 缺失值: 用中位数/众数填充(简单做法)
+                v = (f.low + f.high) / 2 if f.type in ("continuous", "discrete") else (
+                    (f.categories or [""])[0] if f.categories else ""
+                )
+            if f.type in ("categorical", "categorical_descriptor", "categorical_molecular"):
+                x_row.append(float(cat_maps[i].get(str(v), 0)))
+            else:
+                try:
+                    x_row.append(float(v))
+                except (ValueError, TypeError):
+                    x_row.append(float((f.low + f.high) / 2) if f.low is not None and f.high is not None else 0.0)
+        rows_X.append(x_row)
+        y_row = []
+        for o in config.outputs:
+            y_row.append(float(rec.output.get(o.key) or 0.0))
+        rows_Y.append(y_row)
+
+    X = np.array(rows_X, dtype=float) if rows_X else np.zeros((0, len(X_cols)))
+    Y = np.array(rows_Y, dtype=float) if rows_Y else np.zeros((0, len(Y_cols)))
+    return PreparedData(
+        X=X, Y=Y, X_cols=X_cols, Y_cols=Y_cols,
+        cat_maps=cat_maps, discrete_values=discrete_values,
+    )
+
+
+# ---------- Utility ----------
+def describe_domain(domain: Any) -> dict[str, Any]:
+    """返回 domain 的可读 summary。"""
+    return {
+        "n_inputs": len(domain.inputs),
+        "n_outputs": len(domain.features) - len(domain.inputs),  # ⚠️ workaround #9
+        "input_keys": [f.key for f in domain.inputs],
+        "output_keys": [f.key for f in domain.features if f.key not in [i.key for i in domain.inputs]],
+    }
