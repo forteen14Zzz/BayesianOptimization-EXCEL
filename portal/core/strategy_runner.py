@@ -113,12 +113,15 @@ def _pure_python_ask(config: Any, trial_id_start: int) -> list[Candidate]:
 def _random_ask(domain: Any, config: Any, trial_id_start: int) -> list[Candidate]:
     """用 BoFire RandomStrategy 采样。"""
     try:
-        from bofire.strategies.api import RandomStrategy
-        strat = RandomStrategy(domain=domain)
+        from bofire.data_models.strategies.api import RandomStrategy as RandomDM
+        from bofire.strategies.api import RandomStrategy as RandomImpl
+
+        dm = RandomDM(domain=domain, seed=42)
+        strat = RandomImpl(data_model=dm)
         df = strat.ask(candidate_count=config.strategy.batch_size)
         return _df_to_candidates(df, domain, trial_id_start)
     except Exception as e:
-        warnings.warn(f"BoFire RandomStrategy.ask 失败: {e}, 降级到本地均匀采样")
+        warnings.warn(f"BoFire RandomStrategy 失败: {e}, 降级到本地均匀采样")
         return _local_uniform_ask(domain, config, trial_id_start)
 
 
@@ -131,7 +134,6 @@ def _sobo_ask(
 ) -> list[Candidate]:
     """GP-BO 路径: train GP, 用 acf 选 candidates。"""
     prepared = prepare_data(records, config)
-    weights = output_objective_weights(config.outputs)
 
     # 构造 SoboStrategy data_model
     acf = resolve_acf_function(
@@ -142,38 +144,48 @@ def _sobo_ask(
     try:
         from bofire.data_models.strategies.api import SoboStrategy as SoboDM
         from bofire.strategies.api import SoboStrategy as SoboStrategyImpl
+        from bofire.data_models.acquisition_functions.api import qLogEI, qLogEHVI, qNEHVI, qEI, qNEI, qUCB
+
+        # ⚠️ BoFire 0.4.1: acquisition_function 必须传 acf 实例,不是字符串
+        acf_obj = {
+            "qLogEI": qLogEI(),
+            "qLogEHVI": qLogEHVI(),
+            "qNEHVI": qNEHVI(),
+            "qEI": qEI(),
+            "qNEI": qNEI(),
+            "qUCB": qUCB(),
+        }.get(acf, qLogEI())
 
         sobo_dm = SoboDM(
             domain=domain,
-            acquisition_function=acf,
-            # ⚠️ BoFire 0.4.1 没有 num_sobol_samples / num_restarts 等
-            # 字段,默认值够用。
+            acquisition_function=acf_obj,
+            seed=42,  # 固定种子保证可复现
         )
-        strat = SoboStrategyImpl.from_spec(domain=domain, spec=sobo_dm)
+        # ⚠️ BoFire 0.4.1: from_spec(data_model=...) 或直接 SoboStrategy(data_model=...)
+        strat = SoboStrategyImpl(data_model=sobo_dm)
 
         # 喂数据
         try:
-            import pandas as pd  # noqa: F401
-            X_df = pd.DataFrame(prepared.X, columns=prepared.X_cols)
-            Y_df = pd.DataFrame(prepared.Y, columns=prepared.Y_cols)
+            import pandas as pd
+            # ⚠️ BoFire 0.4.1: tell(experiments: DataFrame) 一个 df 包含
+            # features + outcomes(不再是 X/Y 分开)
+            exp_df = pd.DataFrame(prepared.X, columns=prepared.X_cols)
+            for j, y_col in enumerate(prepared.Y_cols):
+                exp_df[y_col] = prepared.Y[:, j] if hasattr(prepared.Y, "shape") else [r[j] for r in prepared.Y]
         except ImportError:
             warnings.warn("BoFire SOBO 需要 pandas, 降级到 random")
             return _random_ask(domain, config, trial_id_start)
-        # ⚠️ BoFire 0.4.1 接受 columns 命名为 output key
-        # tell() 形式: strat.tell(X=X_df, Y=Y_df)
-        # 或 strat.tell(failed=..., pending=..., X=..., Y=...)
-        try:
-            strat.tell(X=X_df, Y=Y_df)
-        except Exception:
-            strat.tell(X=X_df)
 
-        # ask
+        try:
+            strat.tell(experiments=exp_df)
+        except Exception as e:
+            warnings.warn(f"strat.tell failed: {e}, 降级到 random")
+            return _random_ask(domain, config, trial_id_start)
+
         df = strat.ask(candidate_count=config.strategy.batch_size)
         candidates = _df_to_candidates(df, domain, trial_id_start)
 
-        # ⚠️ workaround #7: BoFire 0.4.1 没有 trainable_inputs,
-        # 这里由 pipeline 层 pin_non_trainable 覆盖;sobo_ask 只输出
-        # 不动候选
+        # ⚠️ workaround #7: pin_non_trainable 在 pipeline 层做
         return candidates
 
     except Exception as e:

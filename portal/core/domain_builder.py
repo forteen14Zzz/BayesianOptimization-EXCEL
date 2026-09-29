@@ -36,23 +36,40 @@ from .excel_io import ConfigSheet, FactorSpec, OutputSpec
 def build_output_features(outputs: list[OutputSpec]) -> list[Any]:
     """从 OutputSpec 列表构造 BoFire OutputFeature。
 
-    ⚠️ workaround #1: 不用 DiscreteOutput,一律 ContinuousOutput。
-    ⚠️ workaround #2: CategoricalOutput 在 MOBO 下被拒,统一降级
-    为 ContinuousOutput 并 numeric 编码。
+    ⚠️ BoFire 0.4.1 ContinuousOutput 签名: (key, context, unit, objective)
+    不接受 lower_bound/upper_bound。objective 用 MaximizeObjective /
+    MinimizeObjective / TargetObjective(由 OutputSpec.direction 决定)。
     """
     from bofire.data_models.features.api import ContinuousOutput
+    from bofire.data_models.objectives.api import (
+        MaximizeObjective,
+        MinimizeObjective,
+        TargetObjective,
+    )
 
     feats: list[Any] = []
     for o in outputs:
-        # 不管 direction 是什么,统一用 ContinuousOutput + objective_weight
-        # 方向在 tell / ask 时再处理 (maximize 权重 +1, minimize -1, target
-        # 需要在 transform 后做 |y - target|)
+        if o.direction == "maximize":
+            objective = MaximizeObjective()
+        elif o.direction == "minimize":
+            objective = MinimizeObjective()
+        elif o.direction == "target":
+            # TargetObjective(w=value, tolerance=tolerance_value)
+            # tolerance 简单取 (upper-lower) / 4 或 default 0.1
+            if o.lower_bound is not None and o.upper_bound is not None:
+                tol = max(0.01, (o.upper_bound - o.lower_bound) / 4)
+            else:
+                tol = 0.1
+            objective = TargetObjective(w=float(o.target or 0.0), tolerance=tol)
+        else:
+            raise ValueError(f"{o.key}: 未知 direction {o.direction!r}")
+
         feats.append(
             ContinuousOutput(
                 key=o.key,
-                lower_bound=o.lower_bound if o.lower_bound is not None else 0.0,
-                upper_bound=o.upper_bound if o.upper_bound is not None else 1.0,
-            )
+                objective=objective,
+                unit=o.unit,
+            ),
         )
     return feats
 
@@ -241,34 +258,44 @@ def prepare_data(
             discrete_values[f.key] = dv
 
     rows_X: list[list[float]] = []
+    rows_X_cat: list[list[Any]] = []  # categorical 原值,给 BoFire 验
     rows_Y: list[list[float]] = []
     for rec in records:
         x_row = []
+        x_cat_row = []
         for i, f in enumerate(trainable):
             v = rec.factors.get(f.key)
             if v is None:
-                # 缺失值: 用中位数/众数填充(简单做法)
                 v = (f.low + f.high) / 2 if f.type in ("continuous", "discrete") else (
                     (f.categories or [""])[0] if f.categories else ""
                 )
             if f.type in ("categorical", "categorical_descriptor", "categorical_molecular"):
-                x_row.append(float(cat_maps[i].get(str(v), 0)))
+                # ⚠️ BoFire 0.4.1 categorical 接受原值字符串,不接受 int 编码
+                x_row.append(0.0)  # 占位,BoFire 不会用
+                x_cat_row.append(str(v))
             else:
+                x_cat_row.append("")
                 try:
                     x_row.append(float(v))
                 except (ValueError, TypeError):
                     x_row.append(float((f.low + f.high) / 2) if f.low is not None and f.high is not None else 0.0)
         rows_X.append(x_row)
+        rows_X_cat.append(x_cat_row)
         y_row = []
         for o in config.outputs:
             y_row.append(float(rec.output.get(o.key) or 0.0))
         rows_Y.append(y_row)
 
+    # categorical 列:用原值替换 X 里的占位
+    for i, f in enumerate(trainable):
+        if f.type in ("categorical", "categorical_descriptor", "categorical_molecular"):
+            for r_idx in range(len(rows_X)):
+                rows_X[r_idx][i] = rows_X_cat[r_idx][i]
+
     if HAS_NUMPY:
-        X_arr: Any = np.array(rows_X, dtype=float) if rows_X else np.zeros((0, len(X_cols)))
+        X_arr: Any = np.array(rows_X, dtype=object) if rows_X else np.zeros((0, len(X_cols)), dtype=object)
         Y_arr: Any = np.array(rows_Y, dtype=float) if rows_Y else np.zeros((0, len(Y_cols)))
     else:
-        # 没有 numpy — 用 list 占位
         X_arr = rows_X
         Y_arr = rows_Y
     return PreparedData(

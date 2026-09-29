@@ -6,3 +6,6 @@ pydantic>=2.5
 matplotlib>=3.7
 numpy>=1.24
 watchdog>=3.0
+cvxpy>=1.5
+pymoo>=0.6
+shap>=0.45
