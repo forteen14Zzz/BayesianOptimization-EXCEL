@@ -34,7 +34,7 @@ def write_recommend_cache(
     cache = project_dir / CACHE_DIR
     cache.mkdir(parents=True, exist_ok=True)
 
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")  # 含毫秒避免同秒重名
     out = cache / f"{RECOMMEND_PREFIX}{ts}.xlsx"
 
     wb = Workbook()
