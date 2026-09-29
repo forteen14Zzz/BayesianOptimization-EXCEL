@@ -52,4 +52,19 @@ python portal\run.py --project projects\Suzuki_2026Q4_demo --phase ask
 
 ## 状态
 
-🚧 **M1 脚手架进行中** — 见 git log。
+✅ **M1 脚手架完成** — 见 git log。
+
+```
+$ python -m pytest tests/ -q
+44 passed, 3 warnings in 8.07s
+```
+
+## M1 演示(跑 3 轮 BO)
+
+```bash
+python scripts/run_demo.py
+```
+
+演示会跑 3 轮 BO,模拟同事填实验结果,3 轮推荐历史累加到 📊 看板。生成的 demo 项目: `projects/Suzuki_2026Q4_demo/Suzuki_2026Q4_demo.xlsx`。
+
+> **注**: 当前环境未装 BoFire,演示走降级路径(纯 Python 随机采样)。装上 BoFire 后会走真 GP-BO 路径。
