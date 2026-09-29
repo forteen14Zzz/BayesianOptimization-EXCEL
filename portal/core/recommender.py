@@ -117,7 +117,11 @@ def merge_cache_to_dashboard(
                 col = _col_letter(ws, header, header_row=5)
                 if col is None:
                     continue
-                ws.cell(row=6 + i, column=col, value=row[j])
+                target = ws.cell(row=6 + i, column=col)
+                from openpyxl.cell.cell import MergedCell
+                if isinstance(target, MergedCell):
+                    continue
+                target.value = row[j]
 
         # 2. 历轮推荐区(追加到 row 49 起,找第一个空行)
         existing = sum(1 for r in range(49, ws.max_row + 1) if ws.cell(row=r, column=1).value)
@@ -131,7 +135,13 @@ def merge_cache_to_dashboard(
                 if src_idx is None:
                     continue
                 v = row[src_idx]
-                ws.cell(row=next_row + i, column=hist_col, value=v)
+                # ⚠️ 保护:有些模板 cell 在合并区域(MergedCell),
+                # 写入会抛 AttributeError。跳过。
+                from openpyxl.cell.cell import MergedCell
+                target_cell = ws.cell(row=next_row + i, column=hist_col)
+                if isinstance(target_cell, MergedCell):
+                    continue
+                target_cell.value = v
 
         # 3. 运行日志追加
         existing_log = sum(1 for r in range(63, ws.max_row + 1) if ws.cell(row=r, column=1).value)
@@ -141,8 +151,12 @@ def merge_cache_to_dashboard(
             now, "ask", round_num, "", "sobo", "", len(data_rows),
             "ok", f"merged {len(data_rows)} candidates from {cache_path.name}", "",
         ]
+        from openpyxl.cell.cell import MergedCell
         for j, v in enumerate(log_row[:10]):
-            ws.cell(row=log_next, column=j + 1, value=v)
+            target = ws.cell(row=log_next, column=j + 1)
+            if isinstance(target, MergedCell):
+                continue
+            target.value = v
 
         wb.save(str(xlsx_path))
     finally:
