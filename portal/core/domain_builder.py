@@ -22,7 +22,12 @@ import warnings
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    np = None  # type: ignore[assignment]
+    HAS_NUMPY = False
 
 from .excel_io import ConfigSheet, FactorSpec, OutputSpec
 
@@ -64,11 +69,16 @@ def build_input_features(factors: list[FactorSpec]) -> list[Any]:
       categorical → CategoricalInput
       categorical_descriptor → CategoricalInput(忽略 descriptors,M0 不支持)
       categorical_molecular → CategoricalInput(忽略 SMILES,RDKit 缺失则降级提示)
+
+    若 bofire 缺失,raise ImportError;调用方应该 fallback 到纯 Python 采样。
     """
-    from bofire.data_models.features.api import (
-        CategoricalInput,
-        ContinuousInput,
-    )
+    try:
+        from bofire.data_models.features.api import (
+            CategoricalInput,
+            ContinuousInput,
+        )
+    except ImportError as e:
+        raise ImportError("bofire 不可用") from e
 
     feats: list[Any] = []
     for f in factors:
@@ -112,12 +122,17 @@ def build_input_features(factors: list[FactorSpec]) -> list[Any]:
 
 
 # ---------- Domain 构造 ----------
-def build_domain(config: ConfigSheet) -> Any:
+def build_domain(config: ConfigSheet) -> Any | None:
     """从 ConfigSheet 构造 BoFire Domain。
 
     ⚠️ workaround #4: 不传 constraints=None。
+
+    若 bofire 缺失,返回 None;调用方应该 fallback 到本地采样。
     """
-    from bofire.data_models.domain.api import Domain
+    try:
+        from bofire.data_models.domain.api import Domain
+    except ImportError:
+        return None
 
     input_features = build_input_features(config.factors)
     output_features = build_output_features(config.outputs)
@@ -131,7 +146,7 @@ def build_domain(config: ConfigSheet) -> Any:
 
 
 # ---------- acf 映射 ----------
-def resolve_acq_function(strategy_type: str, acf_name: str, n_outputs: int) -> str:
+def resolve_acf_function(strategy_type: str, acf_name: str, n_outputs: int) -> str:
     """根据策略类型 / acf 名 / 输出数,返回实际可用的 acf。
 
     ⚠️ workaround #5: MOBO acf 必须是 EHVI 家族(qLogEHVI/qNEHVI/qEHVI)
@@ -154,12 +169,14 @@ def resolve_acq_function(strategy_type: str, acf_name: str, n_outputs: int) -> s
 
 
 # ---------- Direction → objective_weight ----------
-def output_objective_weights(outputs: list[OutputSpec]) -> np.ndarray:
+def output_objective_weights(outputs: list[OutputSpec]) -> list[float]:
     """把 OutputsSpec 转 BoFire 用的 objective_weights 数组。
 
     maximize → +1
     minimize → -1
     target   → +1 (|y - target| 最小化是等价的 +1 加 |target - y|,BoFire 内置)
+
+    返回 list[float],BoFire 接受 list,不强制要 numpy 数组。
     """
     weights = []
     for o in outputs:
@@ -167,7 +184,7 @@ def output_objective_weights(outputs: list[OutputSpec]) -> np.ndarray:
             weights.append(-1.0)
         else:
             weights.append(1.0)
-    return np.array(weights, dtype=float)
+    return weights
 
 
 # ---------- 数据准备 ----------
@@ -193,6 +210,9 @@ def prepare_data(
 
     BoFire 0.4.1 的 surrogates 训练接口接受: pd.DataFrame(features)
     + pd.DataFrame(outcomes)。这里我们生成 np + 编码表,调用方转 df。
+
+    如果没有 numpy,用 list[list[float]] 替代。返回 PreparedData.X 是
+    numpy ndarray(若可用)或 list[list[float]];PreparedData.Y 同。
     """
     trainable = [f for f in config.factors if f.trainable]
     X_cols = [f.key for f in trainable]
@@ -244,10 +264,15 @@ def prepare_data(
             y_row.append(float(rec.output.get(o.key) or 0.0))
         rows_Y.append(y_row)
 
-    X = np.array(rows_X, dtype=float) if rows_X else np.zeros((0, len(X_cols)))
-    Y = np.array(rows_Y, dtype=float) if rows_Y else np.zeros((0, len(Y_cols)))
+    if HAS_NUMPY:
+        X_arr: Any = np.array(rows_X, dtype=float) if rows_X else np.zeros((0, len(X_cols)))
+        Y_arr: Any = np.array(rows_Y, dtype=float) if rows_Y else np.zeros((0, len(Y_cols)))
+    else:
+        # 没有 numpy — 用 list 占位
+        X_arr = rows_X
+        Y_arr = rows_Y
     return PreparedData(
-        X=X, Y=Y, X_cols=X_cols, Y_cols=Y_cols,
+        X=X_arr, Y=Y_arr, X_cols=X_cols, Y_cols=Y_cols,
         cat_maps=cat_maps, discrete_values=discrete_values,
     )
 

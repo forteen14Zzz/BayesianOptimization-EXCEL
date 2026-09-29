@@ -1,6 +1,6 @@
 """tests/test_pipeline.py — 端到端 pipeline 测试。
 
-依赖: bofire 装好才跑(用 pytest.importorskip)
+依赖: bofire 装好才跑 SOBO 路径;无 bofire 时跑 fallback 路径(degraded)。
 """
 from __future__ import annotations
 
@@ -9,9 +9,7 @@ from pathlib import Path
 
 import pytest
 
-bofire = pytest.importorskip("bofire")
-
-from portal.core import pipeline, excel_io  # noqa: E402
+from portal.core import pipeline, excel_io  # noqa: F402
 
 
 @pytest.fixture
@@ -66,7 +64,7 @@ class TestPipelineRefresh:
         assert result["ok"] is True
         # 📊 看板 sheet 应该有内容
         xlsx = next(demo_project.glob("*.xlsx"))
-        wb = pytest.importorskip("openpyxl").load_workbook(str(xlsx))
+        wb = __import__("openpyxl").load_workbook(str(xlsx))
         assert "📊 看板" in wb.sheetnames
         ws = wb["📊 看板"]
         # 本轮推荐 row 6-8 应有数据

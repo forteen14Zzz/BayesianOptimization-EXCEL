@@ -27,7 +27,20 @@ import warnings
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    np = None  # type: ignore[assignment]
+    HAS_NUMPY = False
+
+try:
+    from bofire.strategies.api import SoboStrategy, RandomStrategy  # noqa: F401
+    HAS_BOFIRE = True
+except ImportError:
+    SoboStrategy = None  # type: ignore[assignment]
+    RandomStrategy = None  # type: ignore[assignment]
+    HAS_BOFIRE = False
 
 from .domain_builder import (
     build_domain,
@@ -57,16 +70,43 @@ def run_ask(
     """根据当前 config + 历史数据,推荐 batch_size 个候选。
 
     主入口;供 pipeline.phase=ask 调用。
+    降级链: BoFire SOBO → BoFire Random → local uniform → pure python。
     """
     domain = build_domain(config)
+    if domain is None:
+        # bofire 全不可用 → 纯 Python 采样
+        warnings.warn("bofire 未安装,使用纯 Python 随机采样(degraded)")
+        return _pure_python_ask(config, next_trial_id_start)
+
     n_data = sum(1 for r in records if r.valid == 1)
 
     if n_data < config.strategy.n_initial:
-        # 数据少 → 随机
         return _random_ask(domain, config, next_trial_id_start)
 
-    # 多数据 → BO
     return _sobo_ask(domain, config, records, next_trial_id_start)
+
+
+def _pure_python_ask(config: Any, trial_id_start: int) -> list[Candidate]:
+    """最朴素 fallback — 不依赖 BoFire,也不依赖 bofire 构造的 Domain。
+
+    仅用 config.factors 列表的 low/high/categories。
+    """
+    import random
+    cands = []
+    for i in range(config.strategy.batch_size):
+        factors: dict[str, Any] = {}
+        for f in config.factors:
+            if f.type in ("continuous", "discrete"):
+                lo = float(f.low or 0.0)
+                hi = float(f.high or 1.0)
+                factors[f.key] = random.uniform(lo, hi)
+            elif f.type in ("categorical", "categorical_descriptor", "categorical_molecular"):
+                cats = f.categories or [""]
+                factors[f.key] = str(random.choice(cats))
+            else:
+                factors[f.key] = None
+        cands.append(Candidate(trial_id=f"T{trial_id_start + i:04d}", factors=factors))
+    return cands
 
 
 # ---------- Random strategy ----------
@@ -112,9 +152,13 @@ def _sobo_ask(
         strat = SoboStrategyImpl.from_spec(domain=domain, spec=sobo_dm)
 
         # 喂数据
-        import pandas as pd
-        X_df = pd.DataFrame(prepared.X, columns=prepared.X_cols)
-        Y_df = pd.DataFrame(prepared.Y, columns=prepared.Y_cols)
+        try:
+            import pandas as pd  # noqa: F401
+            X_df = pd.DataFrame(prepared.X, columns=prepared.X_cols)
+            Y_df = pd.DataFrame(prepared.Y, columns=prepared.Y_cols)
+        except ImportError:
+            warnings.warn("BoFire SOBO 需要 pandas, 降级到 random")
+            return _random_ask(domain, config, trial_id_start)
         # ⚠️ BoFire 0.4.1 接受 columns 命名为 output key
         # tell() 形式: strat.tell(X=X_df, Y=Y_df)
         # 或 strat.tell(failed=..., pending=..., X=..., Y=...)
@@ -207,7 +251,8 @@ def pin_non_trainable(
 
 
 def _local_uniform_ask(domain: Any, config: Any, trial_id_start: int) -> list[Candidate]:
-    """完全本地随机采样 — fallback,不依赖 BoFire。"""
+    """完全本地随机采样 — fallback,不依赖 BoFire 也不依赖 numpy。"""
+    import random
     cands = []
     for i in range(config.strategy.batch_size):
         factors: dict[str, Any] = {}
@@ -215,9 +260,9 @@ def _local_uniform_ask(domain: Any, config: Any, trial_id_start: int) -> list[Ca
             key = f.key
             if hasattr(f, "bounds") and f.bounds:
                 lo, hi = float(f.bounds[0]), float(f.bounds[1])
-                factors[key] = float(np.random.uniform(lo, hi))
+                factors[key] = random.uniform(lo, hi)
             elif hasattr(f, "categories") and f.categories:
-                factors[key] = str(np.random.choice(list(f.categories)))
+                factors[key] = str(random.choice(list(f.categories)))
             else:
                 factors[key] = None
         cands.append(

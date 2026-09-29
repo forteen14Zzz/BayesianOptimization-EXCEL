@@ -89,15 +89,15 @@ def process(project_dir: Path, phase: str) -> dict:
             # 算 round / next_trial_id
             round_num = 1
             next_trial_id = 1
-            existing_tids = sorted(r.trial_id for r in records)
-            if existing_tids:
-                # 从 T0001 这种找最大编号
+            # 只算 valid=1 的 max trial_id,避免和失败行冲突
+            valid_tids = sorted(r.trial_id for r in valid_records)
+            if valid_tids:
                 max_n = 0
-                for tid in existing_tids:
+                for tid in valid_tids:
                     if tid.startswith("T") and tid[1:].isdigit():
                         max_n = max(max_n, int(tid[1:]))
                 next_trial_id = max_n + 1
-                # round = next_trial_id / batch_size
+                # round = next_trial_id / batch_size(粗略)
                 round_num = max(1, max_n // max(1, cfg.strategy.batch_size) + 1)
 
             # 跑 BO
