@@ -26,17 +26,24 @@ def _make_config(factor_type="continuous", categories=None):
 
 
 class TestBuildDomain:
-    def test_no_bofire_returns_none(self):
-        """没 bofire 时, build_domain 返回 None。"""
+    def test_returns_domain_or_none(self):
+        """build_domain 在 bofire 装上时返回 Domain,缺时返回 None。"""
         cfg = _make_config()
         result = domain_builder.build_domain(cfg)
-        # bofire 不在 → None; bofire 在 → Domain 实例
-        # 不能严格断言 None,因为环境可能装了 bofire
-        if result is not None:
-            # 装了 bofire, 验证 Domain 构造
-            assert len(result.inputs) == 1
-            assert len([f for f in result.features if f.key not in [i.key for i in result.inputs]]) == 1
-        # 没装也没报错就算通过
+        if not domain_builder.HAS_BOFIRE:
+            assert result is None
+            return
+        # bofire 装上了,验证 Domain 构造
+        assert result is not None
+        # ⚠️ BoFire 0.4.1: Domain.inputs/Outputs 都是 Inputs/Outputs 对象,
+        # 不是 list;真正的 features 列表是 .inputs.features / .outputs.features
+        assert hasattr(result.inputs, "features")
+        assert hasattr(result.outputs, "features")
+        assert len(result.inputs.features) == 1
+        assert len(result.outputs.features) == 1
+        # keys
+        assert [f.key for f in result.inputs.features] == ["温度"]
+        assert [f.key for f in result.outputs.features] == ["Yield"]
 
 
 class TestResolveAcf:

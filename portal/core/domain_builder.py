@@ -29,6 +29,12 @@ except ImportError:
     np = None  # type: ignore[assignment]
     HAS_NUMPY = False
 
+try:
+    from bofire.data_models.features.api import ContinuousOutput  # noqa: F401
+    HAS_BOFIRE = True
+except ImportError:
+    HAS_BOFIRE = False
+
 from .excel_io import ConfigSheet, FactorSpec, OutputSpec
 
 
@@ -306,10 +312,16 @@ def prepare_data(
 
 # ---------- Utility ----------
 def describe_domain(domain: Any) -> dict[str, Any]:
-    """返回 domain 的可读 summary。"""
+    """返回 domain 的可读 summary。
+
+    ⚠️ BoFire 0.4.1: Domain.inputs 和 Domain.outputs 是 Inputs/Outputs 对象,
+    不是 list。真正的 features 列表是 .inputs.features 和 .outputs.features。
+    """
+    if domain is None:
+        return {"error": "bofire not installed"}
     return {
-        "n_inputs": len(domain.inputs),
-        "n_outputs": len(domain.features) - len(domain.inputs),  # ⚠️ workaround #9
-        "input_keys": [f.key for f in domain.inputs],
-        "output_keys": [f.key for f in domain.features if f.key not in [i.key for i in domain.inputs]],
+        "n_inputs": len(domain.inputs.features),
+        "n_outputs": len(domain.outputs.features),
+        "input_keys": [f.key for f in domain.inputs.features],
+        "output_keys": [f.key for f in domain.outputs.features],
     }
