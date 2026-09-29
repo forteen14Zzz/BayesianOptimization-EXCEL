@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Notebook
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# 大文件 / 模型权重 / 数据
+*.pkl
+*.pt
+*.pth
+*.h5
+*.hdf5
+*.npz
+*.npy
+*.bin
+*.safetensors
+data/raw/
+checkpoints/
+runs/
+logs/
+*.log
+
+# 输出物
+output/
+outputs/
+results/
+*.png
+!docs/**/*.png
+*.xlsx
+!docs/**/*.xlsx
+
+# 环境
+.env
+.env.local
+*.local
