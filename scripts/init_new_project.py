@@ -64,7 +64,18 @@ def init_project(project_name: str) -> Path:
     # 复制应急 bat(从 demo 项目,已经写好"自动从目录名推断项目名")
     bat_template = ROOT / "projects" / "Suzuki_2026Q4_demo" / "跑_BO_点这里.bat"
     if bat_template.exists():
-        shutil.copy2(bat_template, target_dir / f"跑_BO_点这里.bat")
+        target_bat = target_dir / f"跑_BO_点这里.bat"
+        shutil.copy2(bat_template, target_bat)
+        # ⚠️ Windows cmd 必须 CRLF 终止符解析 bat 文件; git-bash / write_file
+        # 默认是 LF,需要转 CRLF。用 Python 直接转,避免依赖 unix2dos。
+        try:
+            content = target_bat.read_bytes()
+            # 把 LF-only 转 CRLF(已 CRLF 的跳过)
+            if b"\r\n" not in content:
+                content = content.replace(b"\n", b"\r\n")
+                target_bat.write_bytes(content)
+        except Exception:
+            pass  # 转换失败不致命,Windows 下手动转也行
 
     # 创建空 LOG.txt(系统会写)
     (target_dir / "LOG.txt").touch()
