@@ -93,6 +93,23 @@ def _button(ws, row, col, label, target_sheet):
     c.border = THIN_BORDER
 
 
+def _button_cmd(ws, row, col, label, command):
+    """=HYPERLINK 按钮: 点击运行 cmd 命令(运行 bat)。
+    command 不需要 'cmd /c ' 前缀,函数自己加。
+    """
+    # 转义: HYPERLINK 里不能有 " 
+    safe_label = label.replace('"', '""')
+    # Excel HYPERLINK 第一个参数可以是 URL 或文件路径
+    # 我们用 file:/// 协议让 Windows 资源管理器关联执行
+    # 实际: 单纯 file path + .bat,Windows 默认关联 cmd.exe
+    href = command  # 已经是 "cmd /c ..\\跑_BO_点这里.bat" 之类
+    c = ws.cell(row=row, column=col, value=f'=HYPERLINK("{href}","{safe_label}")')
+    c.font = BUTTON_FONT
+    c.fill = BUTTON_FILL
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    c.border = THIN_BORDER
+
+
 def build_start_sheet(wb: Workbook) -> None:
     """Sheet 1: 🚀 开始 — 状态面板 + 按钮 + 下一步引导"""
     ws = wb["🚀 开始"]
@@ -145,15 +162,15 @@ def build_start_sheet(wb: Workbook) -> None:
     _button(ws, 15, 7, "📊 打开看板 sheet", "📊 看板")
     ws.row_dimensions[15].height = 28
 
-    # 启动 BO 按钮 — 走 portal/run.py
-    _button(ws, 17, 1, "🚀 启动 BO(手动)", "⚙️ 配置")
-    ws["A18"] = "(如后台 watchdog 未启动,点这里手动触发 BO)"
+    # 启动 BO 按钮 — 点击一键跑 ask + refresh
+    _button_cmd(ws, 17, 1, "🚀 启动 BO", "..\\跑_BO_点这里.bat")
+    ws["A18"] = "(一键跑 BO: 算新推荐 + 合并到 📊 看板,cmd 窗口会显示日志)"
     ws["A18"].font = HINT_FONT
     ws.merge_cells("A18:H18")
 
-    # 刷新推荐按钮
-    _button(ws, 17, 4, "🔄 刷新最新推荐", "📊 看板")
-    ws["A19"] = "(如果 📊 看板 没更新,点这里从 .cache 拉最新结果)"
+    # 单独 refresh 按钮 — 应急用(如果 📊 看板 没更新)
+    _button_cmd(ws, 17, 4, "🔄 单独刷新", "..\\跑_BO_点这里.bat refresh")
+    ws["A19"] = "(仅把 cache 合并到 📊 看板,不跑 BO)"
     ws["A19"].font = HINT_FONT
     ws.merge_cells("A19:H19")
 

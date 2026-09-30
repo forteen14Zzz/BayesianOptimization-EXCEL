@@ -61,7 +61,7 @@ def init_project(project_name: str) -> Path:
     wb.save(str(target_xlsx))
     wb.close()
 
-    # 复制应急 bat
+    # 复制应急 bat(从 demo 项目,已经写好"自动从目录名推断项目名")
     bat_template = ROOT / "projects" / "Suzuki_2026Q4_demo" / "跑_BO_点这里.bat"
     if bat_template.exists():
         shutil.copy2(bat_template, target_dir / f"跑_BO_点这里.bat")
