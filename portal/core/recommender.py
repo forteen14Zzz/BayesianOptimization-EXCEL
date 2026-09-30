@@ -84,10 +84,12 @@ def merge_cache_to_dashboard(
 
     实现:
     1. 读 cache 全部行
-    2. 打开主 xlsx (⚠️ 可能 Excel 开着 — 失败就抛,提示用户关闭)
-    3. 把候选写到 📊 看板的"最新推荐"区(row 6-8)
-    4. 把候选追加到 "📜 历轮推荐" 区
-    5. 把这一轮 BO 的运行摘要写到 "📋 运行日志" 区
+    2. ⚠️ 根据 ⚙️ 配置 动态重写 📊 看板 row 5/48 的 headers
+       (cache 列名 = 因子英文 key;同事的因子可能和模板默认不一样)
+    3. 打开主 xlsx(⚠️ 可能 Excel 开着 — 失败就抛,提示用户关闭)
+    4. 把候选写到 📊 看板 的"本轮推荐"区(row 6-8)
+    5. 把候选追加到 "📜 历轮推荐" 区
+    6. 把这一轮 BO 的运行摘要写到 "📋 运行日志" 区
     """
     wb = load_workbook(str(xlsx_path))
     try:
@@ -98,6 +100,43 @@ def merge_cache_to_dashboard(
         cwb.close()
         headers_c = list(cache_rows[0])
         data_rows = [list(r) for r in cache_rows[1:]]
+
+        # ⚠️ 动态更新 📊 看板 row 5 / row 48 headers,从 ⚙️ 配置读
+        # 当前用户的 factor / output keys,避免 cache 英文 key 跟模板中文 header 对不上
+        if "⚙️ 配置" in wb.sheetnames:
+            cfg_ws = wb["⚙️ 配置"]
+            factor_keys = []
+            for r in range(6, 12):
+                k = cfg_ws.cell(row=r, column=1).value
+                if k and str(k).strip():
+                    factor_keys.append(str(k).strip())
+            output_keys = []
+            for r in range(14, 17):
+                k = cfg_ws.cell(row=r, column=1).value
+                if k and str(k).strip():
+                    output_keys.append(str(k).strip())
+            # row 5: trial_id + factor + output_mean + output_sd + acq + round + asked_at
+            headers_row5 = ["trial_id"] + factor_keys
+            for o in output_keys:
+                headers_row5 += [f"{o}_mean", f"{o}_sd"]
+            headers_row5 += ["acq_value", "round", "asked_at"]
+            dash = wb["📊 看板"]
+            from openpyxl.cell.cell import MergedCell
+            for i, h in enumerate(headers_row5):
+                target = dash.cell(row=5, column=i + 1)
+                if isinstance(target, MergedCell):
+                    continue
+                target.value = h
+            # row 48 历轮推荐
+            headers_row48 = ["round", "asked_at", "trial_id"] + factor_keys
+            for o in output_keys:
+                headers_row48 += [f"{o}_pred_mean", f"{o}_pred_sd"]
+            headers_row48.append(f"{output_keys[0]}_actual" if output_keys else "actual")
+            for i, h in enumerate(headers_row48):
+                target = dash.cell(row=48, column=i + 1)
+                if isinstance(target, MergedCell):
+                    continue
+                target.value = h
 
         # 写 📊 看板 (假设 DASHBOARD_SHEET = "📊 看板")
         if "📊 看板" not in wb.sheetnames:
