@@ -61,11 +61,13 @@ class FactorSpec(BaseModel):
 
     @model_validator(mode="after")
     def _check_ranges(self):
-        if self.type in ("continuous", "discrete"):
+        # continuous 必须 low/high;discrete 可选 low/high(categories 已经隐含范围)
+        if self.type == "continuous":
             if self.low is None or self.high is None:
-                raise ValueError(f"{self.key}: continuous/discrete 必须填 low 和 high")
+                raise ValueError(f"{self.key}: continuous 必须填 low 和 high")
             if self.low >= self.high:
                 raise ValueError(f"{self.key}: low 必须 < high")
+        # discrete 允许只填 categories(视为有序数)
         if self.type in ("categorical", "categorical_descriptor", "categorical_molecular"):
             if not self.categories:
                 raise ValueError(f"{self.key}: {self.type} 必须填 categories(用 ; 分隔)")
