@@ -78,6 +78,16 @@ def main():
         print('  例: python scripts/init_new_project.py "Suzuki_2026Q4_张三"')
         sys.exit(1)
     name = sys.argv[1]
+
+    # 友好错误:依赖缺失
+    try:
+        from openpyxl import load_workbook  # noqa: F401
+    except ImportError:
+        print("❌ openpyxl 没装。")
+        print("   跑: python -m pip install openpyxl pydantic")
+        print("   或者: 双击 install\\install.bat 重装环境")
+        sys.exit(1)
+
     try:
         target = init_project(name)
     except (FileExistsError, ValueError, FileNotFoundError) as e:

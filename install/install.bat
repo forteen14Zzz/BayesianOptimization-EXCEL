@@ -44,9 +44,27 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM 4. 验证
+REM 4. 验证 — 检查关键模块,给出友好提示
 echo [3/4] 验证...
-python -c "import bofire, openpyxl, watchdog, pandas; print('bofire', bofire.__version__); print('OK')"
+python -c "
+import sys
+missing = []
+for mod in ['bofire', 'botorch', 'torch', 'openpyxl', 'pydantic', 'pandas', 'watchdog', 'cvxpy', 'pymoo', 'shap']:
+    try:
+        __import__(mod)
+    except ImportError:
+        missing.append(mod)
+if missing:
+    print('❌ 缺这些包:', missing)
+    sys.exit(1)
+else:
+    import bofire, torch
+    print(f'  bofire {bofire.__version__}, torch {torch.__version__}, OK')
+" || (
+    echo ❌ 验证失败,联系 IT
+    pause
+    exit /b 1
+)
 
 REM 5. 配自启动(询问)
 set /p autostart= "[4/4] 是否配开机自启动 watchdog? (y/n, 默认 n): "
