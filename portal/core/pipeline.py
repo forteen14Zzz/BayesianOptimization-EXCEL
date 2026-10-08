@@ -154,7 +154,11 @@ def process(project_dir: Path, phase: str) -> dict:
             existing = excel_io.read_records(xlsx_path, [f.key for f in excel_io.read_config(xlsx_path).factors], [o.key for o in excel_io.read_config(xlsx_path).outputs])
             cfg = excel_io.read_config(xlsx_path)
             round_num = (len(existing) // max(1, cfg.strategy.batch_size)) + 1
-            recommender.merge_cache_to_dashboard(project_dir, xlsx_path, latest, round_num)
+            # ⚠️ 用 safe 版本(atomic write,Excel 开着也能跑)
+            result = recommender.merge_cache_to_dashboard_safe(project_dir, xlsx_path, latest, round_num)
+            if not result.get("ok"):
+                _log(f"refresh failed: {result.get('error')}")
+                return {"ok": False, "phase": phase, "error": result.get("error"), "elapsed_s": time.time() - started}
             _log(f"refreshed dashboard from {latest.name}")
             return {"ok": True, "phase": phase, "elapsed_s": time.time() - started, "from": latest.name}
 

@@ -145,6 +145,12 @@ def merge_cache_to_dashboard(
             # row 53 历轮推荐 — 同样的逻辑
             # cache headers + 加 actual_yield 在最后(让用户填实测)
             headers_row53 = list(headers_c) + ["actual_yield"]
+            # 同样做中文友好转换
+            for i, h in enumerate(headers_row53):
+                if h in friendly_names:
+                    headers_row53[i] = friendly_names[h]
+            # actual_yield 也加友好名
+            headers_row53[-1] = "实测Yield"
             for i, h in enumerate(headers_row53):
                 target = dash.cell(row=53, column=i + 1)
                 if isinstance(target, MergedCell):
@@ -221,6 +227,175 @@ def merge_cache_to_dashboard(
         wb.save(str(xlsx_path))
     finally:
         wb.close()
+
+
+def merge_cache_to_dashboard_safe(
+    project_dir: Path,
+    xlsx_path: Path,
+    cache_path: Path,
+    round_num: int,
+) -> dict:
+    """merge_cache_to_dashboard 的安全版本。
+
+    写文件时用临时文件 + atomic rename:
+    1. 先写到 xlsx_path.tmp(不在 Excel 锁范围)
+    2. shutil.move 原子替换 xlsx_path(可能因 Excel 锁失败)
+    3. 失败重试 2 次(给 Excel 时间释放锁)
+    4. 最终失败给清晰错误
+
+    ⚠️ 解决 Permission denied — 当 Excel 打开 xlsx 时,普通 wb.save() 会失败。
+    """
+    tmp_path = xlsx_path.with_suffix(xlsx_path.suffix + ".tmp")
+    wb = load_workbook(str(xlsx_path))
+    try:
+        # 读 cache
+        cwb = load_workbook(str(cache_path), read_only=True)
+        ws_c = cwb.active
+        cache_rows = list(ws_c.iter_rows(values_only=True))
+        cwb.close()
+        headers_c = list(cache_rows[0])
+        data_rows = [list(r) for r in cache_rows[1:]]
+
+        if "📊 看板" not in wb.sheetnames:
+            wb.create_sheet("📊 看板")
+        ws = wb["📊 看板"]
+
+        # ⚠️ 直接用 cache headers_c 作为 row 5 表头,不要重新构造!
+        # 因为 cache headers_c 就是 cache 文件实际的列顺序,数据也按这个顺序。
+        # 重新构造会让 row 5 表头和 cache 数据列错位。
+        #
+        # 表头说明:
+        # - trial_id / round / asked_at: 系统字段
+        # - 因子列: 来自 ⚙️ 配置 key(同事可能用中文也可能用英文)
+        # - *_pred_mean / *_pred_sd: GP 预测的均值/标准差
+        # - acq_value: 采集函数值(EI 等)
+        headers_row5 = list(headers_c)
+        # 把英文系统字段改成中文友好
+        friendly_names = {
+            "trial_id": "实验编号",
+            "round": "轮次",
+            "asked_at": "推荐时间",
+            "acq_value": "采集函数值",
+        }
+        for i, h in enumerate(headers_row5):
+            if h in friendly_names:
+                headers_row5[i] = friendly_names[h]
+        for i, h in enumerate(headers_row5):
+            target = ws.cell(row=5, column=i + 1)
+            from openpyxl.cell.cell import MergedCell
+            if isinstance(target, MergedCell):
+                continue
+            target.value = h
+        # row 53 历轮推荐 — 同样的逻辑
+        # cache headers + 加 actual_yield 在最后(让用户填实测)
+        headers_row53 = list(headers_c) + ["actual_yield"]
+        # 同样做中文友好转换
+        for i, h in enumerate(headers_row53):
+            if h in friendly_names:
+                headers_row53[i] = friendly_names[h]
+        # actual_yield 也加友好名
+        headers_row53[-1] = "实测Yield"
+        for i, h in enumerate(headers_row53):
+            target = ws.cell(row=53, column=i + 1)
+            from openpyxl.cell.cell import MergedCell
+            if isinstance(target, MergedCell):
+                continue
+            target.value = h
+
+        # 1. 本轮推荐区(覆盖 row 6-15 — 支持 batch_size=1..10)
+        # ⚠️ row 5 表头 = headers_c(我们刚写的),数据按 cache 行索引写
+        # 直接按列索引写,不再用 _col_letter 找列号
+        n_candidates = len(data_rows)
+        for i, row in enumerate(data_rows):
+            for j, header in enumerate(headers_c):
+                target = ws.cell(row=6 + i, column=j + 1)
+                from openpyxl.cell.cell import MergedCell
+                if isinstance(target, MergedCell):
+                    continue
+                target.value = row[j]
+
+        # 2. 历轮推荐区(追加到 row 54 起,找第一个完全空的行)
+        next_row = 54
+        for r in range(54, ws.max_row + 1):
+            # 跳过 section 标题行(_style_section 用了 merge_cells)
+            from openpyxl.cell.cell import MergedCell
+            v = ws.cell(row=r, column=1).value
+            if isinstance(v, MergedCell) or v is None:
+                break
+            # 跳过 row 53 表头本身
+            if r == 53:
+                continue
+            next_row = r + 1
+        for i, row in enumerate(data_rows):
+            # row 53 表头 = headers_c + actual_yield(刚写的)
+            # 直接按列索引写
+            for j, header in enumerate(headers_c):
+                target = ws.cell(row=next_row + i, column=j + 1)
+                from openpyxl.cell.cell import MergedCell
+                if isinstance(target, MergedCell):
+                    continue
+                target.value = row[j]
+            # actual_yield 列留空(让用户填实测)
+
+        # 3. 运行日志追加
+        log_next = 76
+        for r in range(76, ws.max_row + 1):
+            from openpyxl.cell.cell import MergedCell
+            v = ws.cell(row=r, column=1).value
+            if isinstance(v, MergedCell) or v is None:
+                break
+            log_next = r + 1
+        now = datetime.now().isoformat(timespec="seconds")
+        log_row = [
+            now, "ask", round_num, "", "sobo", "", len(data_rows),
+            "ok", f"merged {len(data_rows)} candidates from {cache_path.name}", "",
+        ]
+        from openpyxl.cell.cell import MergedCell
+        for j, v in enumerate(log_row[:10]):
+            target = ws.cell(row=log_next, column=j + 1)
+            if isinstance(target, MergedCell):
+                continue
+            target.value = v
+
+        # atomic write:写到 .tmp(不在 Excel 锁范围),然后 mv 替换
+        # ⚠️ 多次重试:Excel 打开文件可能锁目标,rename 会失败
+        import shutil as _sh
+        last_err = None
+        for attempt in range(3):
+            try:
+                wb.save(str(tmp_path))
+                # rename tmp → xlsx_path
+                _sh.move(str(tmp_path), str(xlsx_path))
+                return {"ok": True, "n_merged": len(data_rows)}
+            except PermissionError as e:
+                last_err = e
+                # 给 Excel 时间释放锁
+                import time as _t
+                _t.sleep(0.5)
+                continue
+        return {
+            "ok": False,
+            "error": f"Permission denied — {xlsx_path} 可能被 Excel 打开着。请先关掉 Excel 再跑。",
+            "detail": str(last_err),
+            "attempts": 3,
+        }
+    except PermissionError as e:
+        return {
+            "ok": False,
+            "error": f"Permission denied — {xlsx_path} 可能被 Excel 打开着。请先关掉 Excel 再跑。",
+            "detail": str(e),
+        }
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
+        # 清理 tmp
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
 
 
 def _col_letter(ws: Any, header_value: str, header_row: int) -> int | None:
