@@ -163,13 +163,15 @@ def build_start_sheet(wb: Workbook) -> None:
     ws.row_dimensions[15].height = 28
 
     # 启动 BO 按钮 — 点击一键跑 ask + refresh
-    _button_cmd(ws, 17, 1, "🚀 启动 BO", "..\\跑_BO_点这里.bat")
+    # ⚠️ bat 和 xlsx 在同一目录,所以路径是相对 xlsx 的"当前目录"
+    # 不是 ..\。否则 Excel 找不到 bat。
+    _button_cmd(ws, 17, 1, "🚀 启动 BO", "跑_BO_点这里.bat")
     ws["A18"] = "(一键跑 BO: 算新推荐 + 合并到 📊 看板,cmd 窗口会显示日志)"
     ws["A18"].font = HINT_FONT
     ws.merge_cells("A18:H18")
 
     # 单独 refresh 按钮 — 应急用(如果 📊 看板 没更新)
-    _button_cmd(ws, 17, 4, "🔄 单独刷新", "..\\跑_BO_点这里.bat refresh")
+    _button_cmd(ws, 17, 4, "🔄 单独刷新", "跑_BO_点这里.bat refresh")
     ws["A19"] = "(仅把 cache 合并到 📊 看板,不跑 BO)"
     ws["A19"].font = HINT_FONT
     ws.merge_cells("A19:H19")
