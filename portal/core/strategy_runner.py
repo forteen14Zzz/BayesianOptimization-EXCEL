@@ -185,6 +185,36 @@ def _sobo_ask(
         df = strat.ask(candidate_count=config.strategy.batch_size)
         candidates = _df_to_candidates(df, domain, trial_id_start)
 
+        # ⚠️ GP 预测 mean/sd: 用 strat.predict(df) 拿
+        try:
+            preds_df = strat.predict(experiments=df)
+            # preds_df 形如: input cols + {output}_pred / {output}_sd
+            # 配 candidates[i].pred_mean / pred_sd
+            for i, cand in enumerate(candidates):
+                if i >= len(preds_df):
+                    break
+                row = preds_df.iloc[i]
+                # 找 *_pred 列(单输出时)
+                for y_col in prepared.Y_cols:
+                    pred_col = f"{y_col}_pred"
+                    sd_col = f"{y_col}_sd"
+                    if pred_col in preds_df.columns:
+                        cand.pred_mean = float(row[pred_col])
+                    if sd_col in preds_df.columns:
+                        cand.pred_sd = float(row[sd_col])
+        except Exception as e:
+            warnings.warn(f"GP predict 失败,pred_mean 留 None: {e}")
+
+        # ⚠️ 采集函数值(acq_value):用 strat.calc_acquisition(df)
+        try:
+            acq_values = strat.calc_acquisition(candidates=df)
+            for i, cand in enumerate(candidates):
+                if i < len(acq_values):
+                    v = acq_values[i]
+                    cand.acq_value = float(v) if hasattr(v, "item") else v
+        except Exception as e:
+            warnings.warn(f"calc_acquisition 失败,acq_value 留 None: {e}")
+
         # ⚠️ workaround #7: pin_non_trainable 在 pipeline 层做
         return candidates
 
