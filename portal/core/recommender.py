@@ -133,7 +133,7 @@ def merge_cache_to_dashboard(
                 headers_row48 += [f"{o}_pred_mean", f"{o}_pred_sd"]
             headers_row48.append(f"{output_keys[0]}_actual" if output_keys else "actual")
             for i, h in enumerate(headers_row48):
-                target = dash.cell(row=48, column=i + 1)
+                target = dash.cell(row=53, column=i + 1)
                 if isinstance(target, MergedCell):
                     continue
                 target.value = h
@@ -150,8 +150,10 @@ def merge_cache_to_dashboard(
         # row 49-60 = 历轮推荐(12 行)
         # row 63-90 = 运行日志(27 行)
 
-        # 1. 本轮推荐区(覆盖 row 6-8)
-        for i, row in enumerate(data_rows[:3]):
+        # 1. 本轮推荐区(覆盖 row 6-15 — 支持 batch_size=1..10)
+        # ⚠️ 不再硬编码 [:3],用 len(data_rows) 让 batch_size 自适应
+        n_candidates = len(data_rows)
+        for i, row in enumerate(data_rows):
             for j, header in enumerate(headers_c):
                 col = _col_letter(ws, header, header_row=5)
                 if col is None:
@@ -162,12 +164,12 @@ def merge_cache_to_dashboard(
                     continue
                 target.value = row[j]
 
-        # 2. 历轮推荐区(追加到 row 49 起,找第一个空行)
-        existing = sum(1 for r in range(49, ws.max_row + 1) if ws.cell(row=r, column=1).value)
-        next_row = 49 + existing
-        for i, row in enumerate(data_rows[:3]):
+        # 2. 历轮推荐区(追加到 row 54 起,找第一个空行)
+        existing = sum(1 for r in range(54, ws.max_row + 1) if ws.cell(row=r, column=1).value)
+        next_row = 54 + existing
+        for i, row in enumerate(data_rows):
             # 用 headers_c 的列对应写到 📜 历轮推荐 的列
-            # 历轮推荐 headers (row=48): round, asked_at, trial_id, 因子..., pred_mean, pred_sd, actual_yield
+            # 历轮推荐 headers (row=53): round, asked_at, trial_id, 因子..., pred_mean, pred_sd, actual_yield
             history_cols = _map_cache_to_history(headers_c, ws)
             for cache_col, hist_col in history_cols.items():
                 src_idx = headers_c.index(cache_col) if cache_col in headers_c else None
@@ -183,8 +185,8 @@ def merge_cache_to_dashboard(
                 target_cell.value = v
 
         # 3. 运行日志追加
-        existing_log = sum(1 for r in range(63, ws.max_row + 1) if ws.cell(row=r, column=1).value)
-        log_next = 63 + existing_log
+        existing_log = sum(1 for r in range(76, ws.max_row + 1) if ws.cell(row=r, column=1).value)
+        log_next = 76 + existing_log
         now = datetime.now().isoformat(timespec="seconds")
         log_row = [
             now, "ask", round_num, "", "sobo", "", len(data_rows),
@@ -214,28 +216,28 @@ def _col_letter(ws: Any, header_value: str, header_row: int) -> int | None:
 def _map_cache_to_history(cache_headers: list[str], ws: Any) -> dict[str, int]:
     """把 cache 列名映射到历轮推荐 sheet 的列号。
 
-    历轮推荐 row=48 headers: round, asked_at, trial_id, 因子..., pred_mean, pred_sd, actual_yield
+    历轮推荐 row=53 headers: round, asked_at, trial_id, 因子..., pred_mean, pred_sd, actual_yield
     """
     result = {}
     for j, h in enumerate(cache_headers):
         if h in ("trial_id", "asked_at", "round"):
-            col = _col_letter(ws, h, header_row=48)
+            col = _col_letter(ws, h, header_row=53)
             if col:
                 result[h] = col
         elif h.endswith("_mean"):
             # 简化: 用第一个 output 的 pred mean(单输出场景)
             base = h.replace("_mean", "")
-            col = _col_letter(ws, f"{base}_pred_mean", header_row=48)
+            col = _col_letter(ws, f"{base}_pred_mean", header_row=53)
             if col:
                 result[h] = col
         elif h.endswith("_sd"):
             base = h.replace("_sd", "")
-            col = _col_letter(ws, f"{base}_pred_sd", header_row=48)
+            col = _col_letter(ws, f"{base}_pred_sd", header_row=53)
             if col:
                 result[h] = col
         else:
             # 因子列
-            col = _col_letter(ws, h, header_row=48)
+            col = _col_letter(ws, h, header_row=53)
             if col:
                 result[h] = col
     return result

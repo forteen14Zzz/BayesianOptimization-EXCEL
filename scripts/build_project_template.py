@@ -333,39 +333,42 @@ def build_dashboard_sheet(wb: Workbook) -> None:
     ws["A2"] = "步骤 4/4 · 当前:看板"
     ws["A2"].font = HINT_FONT
 
-    # 本轮推荐区
+    # 本轮推荐区 — 支持最多 10 个候选(batch_size ≤ 10)
     _style_section(ws, 4, 1, "🎯 最新推荐", span=10)
     headers = ["trial_id", "温度", "催化剂用量", "反应时间", "溶剂", "Yield_pred_mean", "Yield_pred_sd", "acq_value", "round", "asked_at"]
     _style_table_header(ws, 5, headers)
-    # 占位 3 行
-    for r in range(6, 9):
+    # 占位 10 行(row 6-15)— 同事 batch_size=10 时能完整展示
+    for r in range(6, 16):
         for c in range(1, 11):
             ws.cell(row=r, column=c).border = THIN_BORDER
             ws.cell(row=r, column=c).fill = PatternFill("solid", fgColor="E2EFDA")  # 浅绿
-    ws["A11"] = "(GP 预测仅供参考,实际 Yield 以你测的为准)"
-    ws["A11"].font = HINT_FONT
-    ws.merge_cells("A11:J11")
+    ws["A16"] = "(GP 预测仅供参考,实际 Yield 以你测的为准)"
+    ws["A16"].font = HINT_FONT
+    ws.merge_cells("A16:J16")
 
     # 收敛曲线区(数据范围 + 留白给 PNG)
-    _style_section(ws, 13, 1, "📈 收敛曲线", span=10)
-    _style_table_header(ws, 14, ["round", "best_so_far", "mean_of_best3", "n_measured", "n_failed", "", "", "", "", ""])
-    for r in range(15, 45):
+    _style_section(ws, 18, 1, "📈 收敛曲线", span=10)
+    _style_table_header(ws, 19, ["round", "best_so_far", "mean_of_best3", "n_measured", "n_failed", "", "", "", "", ""])
+    for r in range(20, 50):
         for c in range(1, 6):
             ws.cell(row=r, column=c).border = THIN_BORDER
-    ws["G14"] = "(右侧留白区放 matplotlib 收敛 PNG)"
-    ws["G14"].font = HINT_FONT
+    ws["G19"] = "(右侧留白区放 matplotlib 收敛 PNG)"
+    ws["G19"].font = HINT_FONT
 
     # 历轮推荐区(累积,系统追加)
-    _style_section(ws, 47, 1, "📜 历轮推荐(累积,只追加不删)", span=10)
-    _style_table_header(ws, 48, ["round", "asked_at", "trial_id", "温度", "催化剂用量", "反应时间", "溶剂", "Yield_pred_mean", "Yield_pred_sd", "actual_Yield"])
-    for r in range(49, 60):
+    _style_section(ws, 52, 1, "📜 历轮推荐(累积,只追加不删)", span=10)
+    _style_table_header(ws, 53, ["round", "asked_at", "trial_id", "温度", "催化剂用量", "反应时间", "溶剂", "Yield_pred_mean", "Yield_pred_sd", "actual_Yield"])
+    for r in range(54, 70):
         for c in range(1, 11):
             ws.cell(row=r, column=c).border = THIN_BORDER
+    ws["A72"] = "💡 每轮 BO 推荐会追加到这里;实际 Yield 填到最后列 `actual_Yield`"
+    ws["A72"].font = HINT_FONT
+    ws.merge_cells("A72:J72")
 
     # 运行日志区
-    _style_section(ws, 61, 1, "📋 运行日志(累积)", span=10)
-    _style_table_header(ws, 62, ["at", "phase", "round", "elapsed_s", "strategy", "n_measured", "n_train", "status", "msg", ""])
-    for r in range(63, 90):
+    _style_section(ws, 74, 1, "📋 运行日志(累积)", span=10)
+    _style_table_header(ws, 75, ["at", "phase", "round", "elapsed_s", "strategy", "n_measured", "n_train", "status", "msg", ""])
+    for r in range(76, 100):
         for c in range(1, 11):
             ws.cell(row=r, column=c).border = THIN_BORDER
 
