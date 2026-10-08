@@ -87,8 +87,8 @@ class TestRecommender:
         # 本轮推荐 row 6 第一格应该是 T0007
         assert ws.cell(row=6, column=1).value == "T0007"
         # 历轮推荐应有追加
-        # 从 row 49 起
-        history_rows = [ws.cell(row=r, column=3).value for r in range(49, 60)]
+        # 从 row 54 起(新模板结构)
+        history_rows = [ws.cell(row=r, column=3).value for r in range(54, 65)]
         assert "T0007" in history_rows
         assert "T0008" in history_rows
 

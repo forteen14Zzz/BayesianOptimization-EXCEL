@@ -164,9 +164,18 @@ def merge_cache_to_dashboard(
                     continue
                 target.value = row[j]
 
-        # 2. 历轮推荐区(追加到 row 54 起,找第一个空行)
-        existing = sum(1 for r in range(54, ws.max_row + 1) if ws.cell(row=r, column=1).value)
-        next_row = 54 + existing
+        # 2. 历轮推荐区(追加到 row 54 起,找第一个完全空的行)
+        next_row = 54
+        for r in range(54, ws.max_row + 1):
+            # 跳过 section 标题行(_style_section 用了 merge_cells)
+            from openpyxl.cell.cell import MergedCell
+            v = ws.cell(row=r, column=1).value
+            if isinstance(v, MergedCell) or v is None:
+                break
+            # 跳过 row 53 表头本身
+            if r == 53:
+                continue
+            next_row = r + 1
         for i, row in enumerate(data_rows):
             # 用 headers_c 的列对应写到 📜 历轮推荐 的列
             # 历轮推荐 headers (row=53): round, asked_at, trial_id, 因子..., pred_mean, pred_sd, actual_yield
@@ -185,8 +194,13 @@ def merge_cache_to_dashboard(
                 target_cell.value = v
 
         # 3. 运行日志追加
-        existing_log = sum(1 for r in range(76, ws.max_row + 1) if ws.cell(row=r, column=1).value)
-        log_next = 76 + existing_log
+        log_next = 76
+        for r in range(76, ws.max_row + 1):
+            from openpyxl.cell.cell import MergedCell
+            v = ws.cell(row=r, column=1).value
+            if isinstance(v, MergedCell) or v is None:
+                break
+            log_next = r + 1
         now = datetime.now().isoformat(timespec="seconds")
         log_row = [
             now, "ask", round_num, "", "sobo", "", len(data_rows),
