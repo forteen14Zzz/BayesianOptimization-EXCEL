@@ -44,8 +44,8 @@ def write_recommend_cache(
     headers = (
         ["trial_id", "round", "asked_at"]
         + list(factor_keys)
-        + [f"{o}_mean" for o in output_keys]
-        + [f"{o}_sd" for o in output_keys]
+        + [f"{o}_pred_mean" for o in output_keys]
+        + [f"{o}_pred_sd" for o in output_keys]
         + ["acq_value"]
     )
     ws.append(headers)
@@ -115,11 +115,26 @@ def merge_cache_to_dashboard(
                 k = cfg_ws.cell(row=r, column=1).value
                 if k and str(k).strip():
                     output_keys.append(str(k).strip())
-            # row 5: trial_id + factor + output_mean + output_sd + acq + round + asked_at
-            headers_row5 = ["trial_id"] + factor_keys
-            for o in output_keys:
-                headers_row5 += [f"{o}_mean", f"{o}_sd"]
-            headers_row5 += ["acq_value", "round", "asked_at"]
+            # ⚠️ 直接用 cache headers_c 作为 row 5 表头,不要重新构造!
+            # 因为 cache headers_c 就是 cache 文件实际的列顺序,数据也按这个顺序。
+            # 重新构造会让 row 5 表头和 cache 数据错位。
+            #
+            # 表头说明:
+            # - trial_id / round / asked_at: 系统字段
+            # - 因子列: 来自 ⚙️ 配置 key(同事可能用中文也可能用英文)
+            # - *_pred_mean / *_pred_sd: GP 预测的均值/标准差
+            # - acq_value: 采集函数值(EI 等)
+            headers_row5 = list(headers_c)
+            # 把英文系统字段改成中文友好
+            friendly_names = {
+                "trial_id": "实验编号",
+                "round": "轮次",
+                "asked_at": "推荐时间",
+                "acq_value": "采集函数值",
+            }
+            for i, h in enumerate(headers_row5):
+                if h in friendly_names:
+                    headers_row5[i] = friendly_names[h]
             dash = wb["📊 看板"]
             from openpyxl.cell.cell import MergedCell
             for i, h in enumerate(headers_row5):
@@ -127,12 +142,10 @@ def merge_cache_to_dashboard(
                 if isinstance(target, MergedCell):
                     continue
                 target.value = h
-            # row 48 历轮推荐
-            headers_row48 = ["round", "asked_at", "trial_id"] + factor_keys
-            for o in output_keys:
-                headers_row48 += [f"{o}_pred_mean", f"{o}_pred_sd"]
-            headers_row48.append(f"{output_keys[0]}_actual" if output_keys else "actual")
-            for i, h in enumerate(headers_row48):
+            # row 53 历轮推荐 — 同样的逻辑
+            # cache headers + 加 actual_yield 在最后(让用户填实测)
+            headers_row53 = list(headers_c) + ["actual_yield"]
+            for i, h in enumerate(headers_row53):
                 target = dash.cell(row=53, column=i + 1)
                 if isinstance(target, MergedCell):
                     continue
@@ -151,14 +164,12 @@ def merge_cache_to_dashboard(
         # row 63-90 = 运行日志(27 行)
 
         # 1. 本轮推荐区(覆盖 row 6-15 — 支持 batch_size=1..10)
-        # ⚠️ 不再硬编码 [:3],用 len(data_rows) 让 batch_size 自适应
+        # ⚠️ row 5 表头 = headers_c(我们刚写的),数据按 cache 行索引写
+        # 直接按列索引写,不再用 _col_letter 找列号
         n_candidates = len(data_rows)
         for i, row in enumerate(data_rows):
             for j, header in enumerate(headers_c):
-                col = _col_letter(ws, header, header_row=5)
-                if col is None:
-                    continue
-                target = ws.cell(row=6 + i, column=col)
+                target = ws.cell(row=6 + i, column=j + 1)
                 from openpyxl.cell.cell import MergedCell
                 if isinstance(target, MergedCell):
                     continue
@@ -177,21 +188,15 @@ def merge_cache_to_dashboard(
                 continue
             next_row = r + 1
         for i, row in enumerate(data_rows):
-            # 用 headers_c 的列对应写到 📜 历轮推荐 的列
-            # 历轮推荐 headers (row=53): round, asked_at, trial_id, 因子..., pred_mean, pred_sd, actual_yield
-            history_cols = _map_cache_to_history(headers_c, ws)
-            for cache_col, hist_col in history_cols.items():
-                src_idx = headers_c.index(cache_col) if cache_col in headers_c else None
-                if src_idx is None:
-                    continue
-                v = row[src_idx]
-                # ⚠️ 保护:有些模板 cell 在合并区域(MergedCell),
-                # 写入会抛 AttributeError。跳过。
+            # row 53 表头 = headers_c + actual_yield(刚写的)
+            # 直接按列索引写
+            for j, header in enumerate(headers_c):
+                target = ws.cell(row=next_row + i, column=j + 1)
                 from openpyxl.cell.cell import MergedCell
-                target_cell = ws.cell(row=next_row + i, column=hist_col)
-                if isinstance(target_cell, MergedCell):
+                if isinstance(target, MergedCell):
                     continue
-                target_cell.value = v
+                target.value = row[j]
+            # actual_yield 列留空(让用户填实测)
 
         # 3. 运行日志追加
         log_next = 76
