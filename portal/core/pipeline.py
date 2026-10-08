@@ -19,6 +19,9 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+from openpyxl import load_workbook
+from openpyxl.cell.cell import MergedCell
+
 from . import excel_io
 from . import strategy_runner
 from . import recommender
@@ -27,6 +30,139 @@ from . import recommender
 PHASE_ASK = "ask"
 PHASE_VALIDATE = "validate"
 PHASE_REFRESH = "refresh"
+
+
+# ---------- 🧪 记录自动填充 ----------
+def _fill_candidates_to_records(
+    xlsx_path: Path,
+    cache_path: Path,
+    candidates: list,
+    factor_keys: list[str],
+    output_keys: list[str],
+) -> int:
+    """把 ask 阶段的候选实验条件自动填到主 xlsx 的 🧪 记录 sheet。
+
+    用户做完实验后,直接填 Yield 列,不用手动抄推荐条件。
+
+    设计:
+    - 🧪 记录 row 4 表头 = trial_id, batch_id, 因子..., yield, valid, status, 来源, 录入时间
+      因子列顺序 = factor_keys 顺序(从 ⚙️ 配置读)
+    - 每个候选写一行:Yield 列留空,valid=1,status=pending,来源=第N轮推荐
+    - 找第一个空行追加(不覆盖已有数据)
+    - 用 atomic write (同 merge_cache_to_dashboard_safe)
+    """
+    if not candidates:
+        return 0
+
+    tmp_path = xlsx_path.with_suffix(xlsx_path.suffix + ".tmp")
+    wb = load_workbook(str(xlsx_path))
+    try:
+        if "🧪 记录" not in wb.sheetnames:
+            return 0
+        ws = wb["🧪 记录"]
+
+        # 同步 row 4 表头 — 用 cache headers 顺序
+        # 列顺序: trial_id, batch_id, 因子..., yield, valid, status, 来源, 录入时间
+        expected_headers = ["trial_id", "batch_id"] + list(factor_keys) + list(output_keys) + ["valid", "status", "来源", "录入时间"]
+        for j, h in enumerate(expected_headers):
+            target = ws.cell(row=4, column=j + 1)
+            if isinstance(target, MergedCell):
+                continue
+            target.value = h
+
+        # 找第一个空行(从 row 5 起)
+        # ⚠️ 跳过模板默认的"💡 提示"合并行(通常是 row 14 / A14:K14)
+        next_row = 5
+        for r in range(5, ws.max_row + 1):
+            v = ws.cell(row=r, column=1).value
+            if v is None or (isinstance(v, str) and not v.strip()):
+                # 跳过提示行
+                if isinstance(v, str) and (v.startswith("💡") or v.startswith("📌") or v.startswith("提示")):
+                    continue
+                break
+            # 跳过合并区子格(A14:K14 那种被锁的)
+            if isinstance(v, MergedCell):
+                continue
+            next_row = r + 1
+
+        # 检查 next_row 是不是在合并区 — 如果是,把数据往下挪到合并区之后
+        # 找出 next_row 之后第一个不在合并区的主格行
+        max_merged_end = 0
+        for rng in ws.merged_cells.ranges:
+            if rng.min_row <= next_row <= rng.max_row:
+                max_merged_end = max(max_merged_end, rng.max_row)
+        if max_merged_end > 0:
+            next_row = max_merged_end + 1
+
+        # ⚠️ 删除 row 14 模板默认的"💡 提示"行(和实际表头冲突)
+        # 同事只看到 4 个真实列,不需要这个老提示
+        from openpyxl.cell.cell import MergedCell as _MC2
+        for rng in list(ws.merged_cells.ranges):
+            if rng.min_row == 14 and "💡" in str(ws.cell(row=14, column=1).value or ""):
+                ws.unmerge_cells(str(rng))
+        # 清 row 14 内容
+        for c in range(1, 13):
+            cell = ws.cell(row=14, column=c)
+            if not isinstance(cell, MergedCell):
+                cell.value = None
+
+        # 写每个候选一行
+        now = datetime.now().isoformat(timespec="seconds")
+        batch_id = datetime.now().strftime("B%Y%m%d-%H%M%S")
+        n_written = 0
+        for cand in candidates:
+            row = [cand.trial_id, batch_id]
+            for k in factor_keys:
+                row.append(cand.factors.get(k))
+            for o in output_keys:
+                row.append(None)  # 用户做完实验填
+            row.extend([1, "pending", "BO推荐", now])
+            for j, v in enumerate(row):
+                target = ws.cell(row=next_row, column=j + 1)
+                if isinstance(target, MergedCell):
+                    continue
+                target.value = v
+            next_row += 1
+            n_written += 1
+
+        # atomic write
+        import shutil as _sh
+        import time as _t
+        last_err = None
+        for attempt in range(3):
+            try:
+                wb.save(str(tmp_path))
+                _sh.move(str(tmp_path), str(xlsx_path))
+                return n_written
+            except PermissionError as e:
+                last_err = e
+                _t.sleep(0.5)
+                continue
+        # 失败 — 不抛错(只是没填成功,用户可手动)
+        _log_safe(f"fill records failed after 3 retries: {last_err}")
+        return 0
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
+
+
+def _log_safe(msg: str) -> None:
+    """最小的 logger — 不依赖 LOG.txt(避免循环 import)。"""
+    try:
+        from pathlib import Path as _P
+        log_path = _P(__file__).resolve().parent.parent.parent / "projects" / "process.log"
+        # 简化: 写到 stdlib
+        import logging as _l
+        _l.warning(msg)
+    except Exception:
+        pass
 
 
 def _project_xlsx(project_dir: Path) -> Path:
@@ -97,8 +233,32 @@ def process(project_dir: Path, phase: str) -> dict:
                     if tid.startswith("T") and tid[1:].isdigit():
                         max_n = max(max_n, int(tid[1:]))
                 next_trial_id = max_n + 1
-                # round = next_trial_id / batch_size(粗略)
-                round_num = max(1, max_n // max(1, cfg.strategy.batch_size) + 1)
+
+            # ⚠️ round_num 从 .cache 文件数算(累积的),不是从 trial_id // batch_size 算
+            # 原因:用户可能调整 batch_size,或者 GP 重跑,导致 trial_id 算不准
+            cache_dir = project_dir / ".cache"
+            if cache_dir.exists():
+                cache_count = len(list(cache_dir.glob("recommend_*.xlsx")))
+                round_num = max(1, cache_count + 1)
+            else:
+                # 没 cache 文件,就是第 1 轮
+                round_num = 1
+
+            # ⚠️ trial_id 必须全局唯一:读 .cache 里所有 cache 文件,
+            # 找 max trial_id,作为下次起点。否则同事不填回 🧪 记录
+            # 时,trial_id 永远从 T0006 开始(冲突)。
+            if cache_dir.exists():
+                global_max = max_n
+                for cache_file in cache_dir.glob("recommend_*.xlsx"):
+                    cwb = __import__("openpyxl").load_workbook(
+                        str(cache_file), read_only=True, data_only=True
+                    )
+                    for row in cwb.active.iter_rows(min_row=2, max_col=1, values_only=True):
+                        if row and row[0] and str(row[0]).startswith("T") and str(row[0])[1:].isdigit():
+                            n = int(str(row[0])[1:])
+                            global_max = max(global_max, n)
+                    cwb.close()
+                next_trial_id = max(next_trial_id, global_max + 1)
 
             # 跑 BO
             candidates = strategy_runner.run_ask(
@@ -120,6 +280,15 @@ def process(project_dir: Path, phase: str) -> dict:
                 round_num,
             )
             _log(f"cache written: {cache_path.name}")
+
+            # ⚠️ 自动填候选到 🧪 记录 — 用户做完实验直接填 yield
+            # 用 cache headers 顺序写 row 4 表头(覆盖旧的)
+            # 每个候选写一行:trial_id, batch_id, 因子..., yield(空), valid=1, status=pending
+            n_filled = _fill_candidates_to_records(
+                xlsx_path, cache_path, candidates,
+                factor_keys=factor_keys, output_keys=output_keys,
+            )
+            _log(f"filled {n_filled} candidates into 🧪 记录")
 
             # 更新 _status
             excel_io.write_status(

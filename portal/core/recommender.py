@@ -131,6 +131,9 @@ def merge_cache_to_dashboard(
                 "round": "轮次",
                 "asked_at": "推荐时间",
                 "acq_value": "采集函数值",
+                # GP 预测列也中文化
+                "Yield_pred_mean": "Yield预测均值",
+                "Yield_pred_sd": "Yield预测标准差",
             }
             for i, h in enumerate(headers_row5):
                 if h in friendly_names:
@@ -276,6 +279,8 @@ def merge_cache_to_dashboard_safe(
             "round": "轮次",
             "asked_at": "推荐时间",
             "acq_value": "采集函数值",
+            "Yield_pred_mean": "Yield预测均值",
+            "Yield_pred_sd": "Yield预测标准差",
         }
         for i, h in enumerate(headers_row5):
             if h in friendly_names:
