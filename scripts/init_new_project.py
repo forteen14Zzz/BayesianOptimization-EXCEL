@@ -87,6 +87,13 @@ def main():
     if len(sys.argv) < 2:
         print("用法: python scripts/init_new_project.py <项目名>")
         print('  例: python scripts/init_new_project.py "Suzuki_2026Q4_张三"')
+        print()
+        print("如果报 'No module named openpyxl',你的 python 路径不对。")
+        print("试这些 python(任选):")
+        print("  /c/Users/user/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe")
+        print("  /c/Users/user/Miniforge3/python.exe")
+        print()
+        print("或者直接双击 init_new_project.bat(自动检测 python)")
         sys.exit(1)
     name = sys.argv[1]
 
