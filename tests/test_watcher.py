@@ -88,7 +88,9 @@ class TestRecommender:
         assert ws.cell(row=6, column=1).value == "T0007"
         # 历轮推荐应有追加
         # 从 row 54 起(新模板结构)
-        history_rows = [ws.cell(row=r, column=3).value for r in range(54, 65)]
+        # cache 列顺序: trial_id, round, asked_at, 因子..., Yield_mean, Yield_sd, acq_value
+        # trial_id 在 col 1(不是 col 3)
+        history_rows = [ws.cell(row=r, column=1).value for r in range(54, 65)]
         assert "T0007" in history_rows
         assert "T0008" in history_rows
 

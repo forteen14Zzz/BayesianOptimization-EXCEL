@@ -80,7 +80,48 @@ def init_project(project_name: str) -> Path:
     # 创建空 LOG.txt(系统会写)
     (target_dir / "LOG.txt").touch()
 
+    # ⚠️ 替换 🚀 开始 sheet 的按钮占位符 → 绝对路径
+    # Excel 解析相对路径用 Excel 当前工作目录,不是 xlsx 目录 → 相对路径必失效
+    # 实测(2026-10-08):ShellExecute 绝对路径 .bat 能正常执行
+    bat_abs = (target_dir / "跑_BO_点这里.bat").resolve()
+    _replace_button_placeholder(target_xlsx, bat_abs)
+
     return target_dir
+
+
+def _replace_button_placeholder(xlsx_path: Path, bat_abs: Path) -> int:
+    """把 🚀 开始 sheet 里 {{BO_BAT}} 占位符替换成绝对路径。"""
+    from openpyxl import load_workbook
+
+    wb = load_workbook(str(xlsx_path))
+    if "🚀 开始" not in wb.sheetnames:
+        wb.close()
+        return 0
+    ws = wb["🚀 开始"]
+    bat_str = str(bat_abs)
+    replaced = 0
+    for r in range(1, 30):
+        for c in range(1, 9):
+            cell = ws.cell(row=r, column=c)
+            v = cell.value
+            if not (isinstance(v, str) and "{{BO_BAT}}" in v):
+                continue
+            # 区分是 "启动 BO" 还是 "单独刷新"(后者带 refresh 参数)
+            is_refresh = "refresh" in v
+            # 公式里的 target:refresh 变体不能把参数塞进文件路径
+            formula_target = bat_str
+            cell.value = v.replace("{{BO_BAT}}", formula_target)
+            replaced += 1
+            # ⚠️ hyperlink 对象的 target 必须是**纯文件路径**(不带参数)
+            if cell.hyperlink is not None:
+                if cell.hyperlink.target and "{{BO_BAT}}" in cell.hyperlink.target:
+                    cell.hyperlink.target = bat_str
+                elif cell.hyperlink.target and "跑_BO_点这里.bat" in cell.hyperlink.target:
+                    cell.hyperlink.target = bat_str
+    if replaced:
+        wb.save(str(xlsx_path))
+    wb.close()
+    return replaced
 
 
 def main():

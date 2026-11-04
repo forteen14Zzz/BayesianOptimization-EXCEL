@@ -84,9 +84,17 @@ def _style_input(ws, row, col, hint=None):
 
 
 def _button(ws, row, col, label, target_sheet):
-    """=HYPERLINK 按钮: 跳到指定 sheet 的 A1"""
+    """按钮: 跳到指定 sheet 的 A1(内部链接,不需要绝对路径)。"""
+    from openpyxl.worksheet.hyperlink import Hyperlink
+
     ref = f"#'{target_sheet}'!A1"
     c = ws.cell(row=row, column=col, value=f'=HYPERLINK("{ref}","{label}")')
+    # ⚠️ 同时写真 hyperlink 对象,让 Excel 认出这是链接(否则点了没反应)
+    c.hyperlink = Hyperlink(
+        ref=c.coordinate,
+        location=f"'{target_sheet}'!A1",
+        tooltip=label,
+    )
     c.font = BUTTON_FONT
     c.fill = BUTTON_FILL
     c.alignment = Alignment(horizontal="center", vertical="center")
@@ -94,16 +102,31 @@ def _button(ws, row, col, label, target_sheet):
 
 
 def _button_cmd(ws, row, col, label, command):
-    """=HYPERLINK 按钮: 点击运行 cmd 命令(运行 bat)。
-    command 不需要 'cmd /c ' 前缀,函数自己加。
+    """按钮: 点击执行 .bat。
+
+    ⚠️ 两个关键点(2026-10-08 实测):
+
+    1. **绝对路径** — Excel 解析相对路径用 Excel 当前工作目录,
+       不是 xlsx 所在目录 → 相对路径必失效。用占位符 {{BO_BAT}},
+       init_new_project.py 生成项目时替换成绝对路径。
+
+    2. **真 hyperlink 对象** — openpyxl 只写 `=HYPERLINK()` 公式时,
+       Excel 打开后 `Range.Hyperlinks.Count` = 0,不认这是超链接。
+       必须同时设 `cell.hyperlink = Hyperlink(...)`,Excel 才会
+       把它当可点击链接处理。
     """
-    # 转义: HYPERLINK 里不能有 " 
+    from openpyxl.worksheet.hyperlink import Hyperlink
+
     safe_label = label.replace('"', '""')
-    # Excel HYPERLINK 第一个参数可以是 URL 或文件路径
-    # 我们用 file:/// 协议让 Windows 资源管理器关联执行
-    # 实际: 单纯 file path + .bat,Windows 默认关联 cmd.exe
-    href = command  # 已经是 "cmd /c ..\\跑_BO_点这里.bat" 之类
-    c = ws.cell(row=row, column=col, value=f'=HYPERLINK("{href}","{safe_label}")')
+    safe_href = command.replace('"', '""')
+
+    c = ws.cell(row=row, column=col, value=f'=HYPERLINK("{safe_href}","{safe_label}")')
+    # ⚠️ 同时写真 hyperlink 对象,让 Excel 认出这是链接
+    c.hyperlink = Hyperlink(
+        ref=c.coordinate,
+        target=safe_href,
+        tooltip=label,
+    )
     c.font = BUTTON_FONT
     c.fill = BUTTON_FILL
     c.alignment = Alignment(horizontal="center", vertical="center")
@@ -163,15 +186,15 @@ def build_start_sheet(wb: Workbook) -> None:
     ws.row_dimensions[15].height = 28
 
     # 启动 BO 按钮 — 点击一键跑 ask + refresh
-    # ⚠️ bat 和 xlsx 在同一目录,所以路径是相对 xlsx 的"当前目录"
-    # 不是 ..\。否则 Excel 找不到 bat。
-    _button_cmd(ws, 17, 1, "🚀 启动 BO", "跑_BO_点这里.bat")
+    # ⚠️ 用占位符 {{BO_BAT}},init_new_project.py 生成项目时替换成绝对路径
+    # (Excel 解析相对路径用的是 Excel 当前工作目录,不是 xlsx 目录 → 相对路径必失效)
+    _button_cmd(ws, 17, 1, "🚀 启动 BO", "{{BO_BAT}}")
     ws["A18"] = "(一键跑 BO: 算新推荐 + 合并到 📊 看板,cmd 窗口会显示日志)"
     ws["A18"].font = HINT_FONT
     ws.merge_cells("A18:H18")
 
     # 单独 refresh 按钮 — 应急用(如果 📊 看板 没更新)
-    _button_cmd(ws, 17, 4, "🔄 单独刷新", "跑_BO_点这里.bat refresh")
+    _button_cmd(ws, 17, 4, "🔄 单独刷新", "{{BO_BAT}} refresh")
     ws["A19"] = "(仅把 cache 合并到 📊 看板,不跑 BO)"
     ws["A19"].font = HINT_FONT
     ws.merge_cells("A19:H19")

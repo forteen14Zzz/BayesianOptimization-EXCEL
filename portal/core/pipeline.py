@@ -225,10 +225,10 @@ def process(project_dir: Path, phase: str) -> dict:
             # 算 round / next_trial_id
             round_num = 1
             next_trial_id = 1
+            max_n = 0  # ⚠️ 必须在 if 外面初始化,否则 records 为空时 UnboundLocalError
             # 只算 valid=1 的 max trial_id,避免和失败行冲突
             valid_tids = sorted(r.trial_id for r in valid_records)
             if valid_tids:
-                max_n = 0
                 for tid in valid_tids:
                     if tid.startswith("T") and tid[1:].isdigit():
                         max_n = max(max_n, int(tid[1:]))
