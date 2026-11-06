@@ -25,6 +25,7 @@ from openpyxl.cell.cell import MergedCell
 from . import excel_io
 from . import strategy_runner
 from . import recommender
+from . import sync_headers
 
 
 PHASE_ASK = "ask"
@@ -217,7 +218,25 @@ def process(project_dir: Path, phase: str) -> dict:
             cfg = excel_io.read_config(xlsx_path)
             factor_keys = [f.key for f in cfg.factors]
             output_keys = [o.key for o in cfg.outputs]
-            records = excel_io.read_records(xlsx_path, factor_keys, output_keys)
+
+            # ⚠️ 先同步 🧪 记录 的表头(跟随 ⚙️ 配置)
+            # 否则同事填的列顺序和配置对不上 → BO 学到错乱的关系
+            try:
+                sync_result = sync_headers.sync_record_headers(
+                    xlsx_path, factor_keys, output_keys
+                )
+                if sync_result.get("changed"):
+                    _log(
+                        f"record headers synced: {sync_result['old_headers']} "
+                        f"-> {sync_result['new_headers']} "
+                        f"(migrated {sync_result['migrated']} rows)"
+                    )
+            except Exception as e:
+                _log(f"header sync failed (continue anyway): {e}")
+
+            records = excel_io.read_records(
+                xlsx_path, factor_keys, output_keys, factor_specs=cfg.factors
+            )
             valid_records = [r for r in records if r.valid == 1]
 
             _log(f"config OK, n_records={len(records)}, n_valid={len(valid_records)}")

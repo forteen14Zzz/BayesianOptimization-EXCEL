@@ -275,8 +275,18 @@ def read_config(xlsx_path: Path) -> ConfigSheet:
         wb.close()
 
 
-def read_records(xlsx_path: Path, factor_keys: list[str], output_keys: list[str]) -> list[RecordRow]:
-    """读 🧪 记录 sheet,只返回 valid=1 的行。"""
+def read_records(
+    xlsx_path: Path,
+    factor_keys: list[str],
+    output_keys: list[str],
+    factor_specs: list[FactorSpec] | None = None,
+) -> list[RecordRow]:
+    """读 🧪 记录 sheet,只返回 valid=1 的行。
+
+    ⚠️ 如果传了 factor_specs,会校验每个因子列的**值类型**是否匹配
+    (continuous 要数值,categorical 要在 categories 列表里)。
+    检测到错位会抛 ValueError,让用户知道"列填串了"而不是默默学到错乱数据。
+    """
     wb = load_workbook(str(xlsx_path), read_only=True, data_only=True)
     try:
         if RECORD_SHEET not in wb.sheetnames:
@@ -305,6 +315,17 @@ def read_records(xlsx_path: Path, factor_keys: list[str], output_keys: list[str]
                 valid = int(valid_raw) if valid_raw is not None and str(valid_raw).strip() != "" else 1
             except (ValueError, TypeError):
                 valid = 1
+            # ⚠️ valid 列值异常(不是 0/1)→ 说明列填串了
+            # (M4 现场 zzz12:base 列填了温度 90,导致 valid 列读到 90,
+            #  数据被 int(90)!=1 静默过滤掉,BO 只用一半数据训练)
+            if valid not in (0, 1):
+                raise ValueError(
+                    f"🧪 记录 sheet 第 {r} 行(trial_id={trial_id!r})的 `valid` 列值是 {valid_raw!r},"
+                    f"只能是 0 或 1(或留空)。\n"
+                    f"这通常说明**列填串位了** — 请检查该行的数据是否和 row 4 的表头一一对应。\n"
+                    f"当前表头: {headers}\n"
+                    f"该行数据: {[row_raw.get(h) for h in headers]}"
+                )
             if valid != 1:
                 continue
             row = RecordRow(
@@ -318,9 +339,65 @@ def read_records(xlsx_path: Path, factor_keys: list[str], output_keys: list[str]
                 created_at=str(row_raw["录入时间"]) if row_raw.get("录入时间") else None,
             )
             rows.append(row)
+
+        # ⚠️ 列值类型校验 — 检测"列填串了"(M4 现场 z13 / zzz12 都踩过)
+        if factor_specs:
+            _validate_factor_values(rows, factor_specs)
         return rows
     finally:
         wb.close()
+
+
+def _validate_factor_values(
+    rows: list[RecordRow],
+    factor_specs: list[FactorSpec],
+) -> None:
+    """校验因子列的值类型是否和配置匹配。
+
+    continuous/discrete → 必须是数值(或者空)
+    categorical → 必须在 categories 列表里(或者空)
+
+    发现错位 → 抛 ValueError,消息说清楚哪一列不对。
+    """
+    specs = {s.key: s for s in factor_specs}
+    problems: dict[str, list[str]] = {}
+
+    for row in rows:
+        for key, val in row.factors.items():
+            spec = specs.get(key)
+            if spec is None or val is None:
+                continue
+            if spec.type in ("continuous", "discrete"):
+                # 必须是数值
+                try:
+                    float(val)
+                except (ValueError, TypeError):
+                    problems.setdefault(key, []).append(
+                        f"{row.trial_id}: {val!r}(期望数值)"
+                    )
+            elif spec.type in ("categorical", "categorical_descriptor", "categorical_molecular"):
+                # 必须在 categories 里
+                cats = spec.categories or []
+                if cats and str(val) not in [str(c) for c in cats]:
+                    problems.setdefault(key, []).append(
+                        f"{row.trial_id}: {val!r}(不在候选列表里)"
+                    )
+
+    if problems:
+        lines = []
+        for key, items in problems.items():
+            sample = items[0]
+            more = f" 等 {len(items)} 处" if len(items) > 1 else ""
+            lines.append(f"  · {key}: {sample}{more}")
+        raise ValueError(
+            "🧪 记录 sheet 的数据列和 ⚙️ 配置 对不上!\n"
+            + "\n".join(lines)
+            + "\n\n"
+            "请检查 🧪 记录 sheet:每列的表头(row 4)和该列的数据类型要一致。\n"
+            "例如 categorical 列(base/ligand/solvent)应该填字符串选项,\n"
+            "continuous 列(temperature/concentration)应该填数字。\n"
+            "⚠️ 也可以点 [🚀 启动 BO] 让系统自动重建表头(数据会按列名迁移)。"
+        )
 
 
 def read_status(xlsx_path: Path) -> dict[str, Any]:
