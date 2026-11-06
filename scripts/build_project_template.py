@@ -229,6 +229,10 @@ def build_config_sheet(wb: Workbook) -> None:
             ws.cell(row=r, column=c).fill = INPUT_FILL
             ws.cell(row=r, column=c).alignment = Alignment(horizontal="left", vertical="center")
     # type 列加数据验证
+    # ⚠️ 范围必须限制在 Factors 区域内(row 6-11)。
+    # 之前写 B6:B105 会一路跨到 Outputs(row 14+) / Strategy(row 21+) /
+    # Constraints(row 33+),同事在那些区域的 B 列点单元格也会看到
+    # continuous/discrete/categorical —— 这就是"三个表格下拉菜单不对"的根因。
     from openpyxl.worksheet.datavalidation import DataValidation
     dv_type = DataValidation(
         type="list",
@@ -236,10 +240,10 @@ def build_config_sheet(wb: Workbook) -> None:
         allow_blank=True,
     )
     ws.add_data_validation(dv_type)
-    dv_type.add("B6:B105")
+    dv_type.add("B6:B11")
     dv_tr = DataValidation(type="list", formula1='"TRUE,FALSE"', allow_blank=True)
     ws.add_data_validation(dv_tr)
-    dv_tr.add("C6:C105")
+    dv_tr.add("C6:C11")
 
     # 示例填 3 个因子(Suzuki 反应常用)
     ws["A6"] = "温度"
@@ -272,9 +276,12 @@ def build_config_sheet(wb: Workbook) -> None:
         for c in range(1, 9):
             ws.cell(row=r, column=c).border = THIN_BORDER
             ws.cell(row=r, column=c).fill = INPUT_FILL
+    # ⚠️ 下拉范围必须限制在本区域内(row 14-16),
+    # 不能像之前那样写 B14:B105 — 那会跨到 Strategy / Constraints 区域,
+    # 同事在别的地方点单元格也会看到 maximize/minimize/target。
     dv_dir = DataValidation(type="list", formula1='"maximize,minimize,target"', allow_blank=True)
     ws.add_data_validation(dv_dir)
-    dv_dir.add("B14:B105")
+    dv_dir.add("B14:B16")
     # 示例 Yield
     ws["A14"] = "Yield"
     ws["B14"] = "maximize"
@@ -303,6 +310,21 @@ def build_config_sheet(wb: Workbook) -> None:
         ws.cell(row=r, column=4, value=desc).border = THIN_BORDER
         ws.cell(row=r, column=4).font = HINT_FONT
 
+    # ⚠️ Strategy 的 value 列下拉 — 每一行只对自己的 value 格生效
+    # (之前 Strategy 完全没有下拉,同事只能手打,容易打错)
+    from openpyxl.worksheet.datavalidation import DataValidation
+    dv_strategy = DataValidation(type="list", formula1='"random,sobo,mobo,doe"', allow_blank=True)
+    ws.add_data_validation(dv_strategy)
+    dv_strategy.add("B21")  # 策略类型
+
+    dv_acqf = DataValidation(type="list", formula1='"qLogEI,qLogNEI,qEI,qUCB"', allow_blank=True)
+    ws.add_data_validation(dv_acqf)
+    dv_acqf.add("B22")  # 采集函数
+
+    dv_bool = DataValidation(type="list", formula1='"TRUE,FALSE"', allow_blank=True)
+    ws.add_data_validation(dv_bool)
+    dv_bool.add("B27")  # 存模型
+
     # --- Constraints (可选) ---
     _style_section(ws, 30, 1, "🔒 约束 (Constraints) — 一般不填", span=8)
     ws["A31"] = "高级用户用。复杂场景(如 温度+时间 总和不能 > 100)在这里加 linear_inequality。"
@@ -313,6 +335,11 @@ def build_config_sheet(wb: Workbook) -> None:
         for c in range(1, 9):
             ws.cell(row=r, column=c).border = THIN_BORDER
             ws.cell(row=r, column=c).fill = INPUT_FILL
+
+    # ⚠️ Constraints 的 type 列下拉 — 只在 row 33-35 生效
+    dv_constraint = DataValidation(type="list", formula1='"linear_inequality,linear_equality"', allow_blank=True)
+    ws.add_data_validation(dv_constraint)
+    dv_constraint.add("B33:B35")
 
 
 def build_record_sheet(wb: Workbook) -> None:
