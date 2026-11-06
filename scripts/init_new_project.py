@@ -36,10 +36,17 @@ def init_project(project_name: str) -> Path:
     if target_dir.exists():
         raise FileExistsError(f"项目已存在: {target_dir}")
 
-    # 复制模板
+    # 复制模板 — 缺失时自动生成(同事拿到包不用先跑别的脚本)
     template = ROOT / "templates" / "project_template.xlsx"
     if not template.exists():
-        raise FileNotFoundError(f"模板不存在: {template}, 请先跑 scripts/build_project_template.py")
+        print("模板不存在,正在自动生成...")
+        import subprocess
+        subprocess.run(
+            [sys.executable, str(Path(__file__).parent / "build_project_template.py")],
+            check=True,
+        )
+    if not template.exists():
+        raise FileNotFoundError(f"模板生成失败: {template}")
 
     target_dir.mkdir(parents=True)
     shutil.copy2(template, target_xlsx)

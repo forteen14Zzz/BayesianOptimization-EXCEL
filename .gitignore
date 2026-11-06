@@ -50,6 +50,10 @@ results/
 !docs/**/*.png
 *.xlsx
 !docs/**/*.xlsx
+# ⚠️ 但模板和 demo 项目必须进版本库,否则同事拿到包没法用
+!templates/*.xlsx
+!projects/Suzuki_2026Q4_demo/*.xlsx
+!projects/Arylation_BMS_demo/*.xlsx
 
 # 环境
 .env
