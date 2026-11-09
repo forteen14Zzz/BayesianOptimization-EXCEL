@@ -199,11 +199,18 @@ def build_start_sheet(wb: Workbook) -> None:
     ws["A19"].font = HINT_FONT
     ws.merge_cells("A19:H19")
 
-    # 收敛提示
-    _style_section(ws, 21, 1, "📈 收敛提示", span=8)
-    ws["A22"] = "=_status!B10"
-    ws["A22"].alignment = Alignment(wrap_text=True, vertical="center")
-    ws.merge_cells("A22:H22")
+    # 生成记录表头按钮 — 填完 ⚙️ 配置后点这个,🧪 记录 的表头就按配置生成好了
+    # (不用等 watchdog 触发,点了立刻生效)
+    _button_cmd(ws, 20, 1, "📋 生成记录表头", "{{BO_BAT}} sync")
+    ws["A21"] = "(按 ⚙️ 配置 的因子/目标重建 🧪 记录 表头 — 填完配置先点这个,再去 🧪 记录 填数据)"
+    ws["A21"].font = HINT_FONT
+    ws.merge_cells("A21:H21")
+
+    # 收敛提示(下移到 row 23 — row 21 被"生成记录表头"按钮占用)
+    _style_section(ws, 23, 1, "📈 收敛提示", span=8)
+    ws["A24"] = "=_status!B10"
+    ws["A24"].alignment = Alignment(wrap_text=True, vertical="center")
+    ws.merge_cells("A24:H24")
     ws.row_dimensions[22].height = 40
 
 

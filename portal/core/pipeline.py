@@ -174,6 +174,66 @@ def _project_xlsx(project_dir: Path) -> Path:
     raise FileNotFoundError(f"项目目录里没找到 .xlsx: {project_dir}")
 
 
+def _sync_status_hint(xlsx_path: Path, sync_result: dict) -> None:
+    """表头同步后,在 🚀 开始 sheet 给出提示。
+
+    告诉同事"表头已经按你的配置生成好了,现在去 🧪 记录 填数据"。
+    """
+    from openpyxl import load_workbook
+
+    try:
+        wb = load_workbook(str(xlsx_path))
+        if "🚀 开始" not in wb.sheetnames:
+            wb.close()
+            return
+        ws = wb["🚀 开始"]
+
+        new_headers = sync_result.get("new_headers") or []
+        # 固定列(不是因子)
+        fixed = {
+            "trial_id", "batch_id", "valid", "status", "来源", "录入时间",
+        }
+        # 因子 = 表头里除了固定列和目标列的
+        # 目标列由 sync_result 传入的 factor 数决定 — 这里从 new_headers 推断:
+        # trial_id, batch_id 之后是因子,然后是目标,最后是固定列
+        n_prefix = 2
+        n_suffix = len(fixed) - 2  # 后面那 4 个
+        middle = new_headers[n_prefix: len(new_headers) - n_suffix] if new_headers else []
+        # 目标数:从 config 拿不到,这里用 middle 减去目标 — 简化:中间全是因子+目标
+        # 提示里只说"列"更保险
+        n_cols = len(middle)
+
+        if sync_result.get("changed"):
+            hint = (
+                f"✅ 已按 ⚙️ 配置 生成 🧪 记录 的表头 "
+                f"({n_cols} 列: {', '.join(middle[:5])}"
+                + (" ..." if n_cols > 5 else "")
+                + ")"
+            )
+        else:
+            hint = (
+                f"🧪 记录 表头已就绪({n_cols} 列: "
+                f"{', '.join(middle[:5])}" + (" ..." if n_cols > 5 else "") + ")"
+            )
+
+        # 写到 A13(状态区下方的空行 — 不覆盖 A12 的"下一步")
+        ws["A13"] = hint
+        from openpyxl.styles import Font
+        ws["A13"].font = Font(name="微软雅黑", size=9, italic=True, color="2E7D32")
+        ws.merge_cells("A13:H13")
+
+        # 🧪 记录 sheet 顶部也加一句提示
+        if "🧪 记录" in wb.sheetnames:
+            ws_rec = wb["🧪 记录"]
+            ws_rec["A2"] = f"步骤 3/4 · 当前:记录 — 按 row 4 表头填数据({n_cols} 列)"
+            ws_rec["A2"].font = Font(name="微软雅黑", size=9, italic=True, color="808080")
+
+        wb.save(str(xlsx_path))
+        wb.close()
+    except Exception:
+        pass  # 提示失败不影响主流程
+
+
 def process(project_dir: Path, phase: str) -> dict:
     """主流程入口。返回 dict 让上层(watcher / run.py)读 status。"""
     project_dir = project_dir.resolve()
@@ -197,6 +257,27 @@ def process(project_dir: Path, phase: str) -> dict:
         if phase == PHASE_VALIDATE:
             cfg = excel_io.read_config(xlsx_path)
             _log(f"validate OK: {len(cfg.factors)} factors, {len(cfg.outputs)} outputs")
+
+            # ⚠️ 配置填完 → 立即同步 🧪 记录 的表头
+            # (同事填完配置就能看到对应的表头,数据往对位置填)
+            factor_keys = [f.key for f in cfg.factors]
+            output_keys = [o.key for o in cfg.outputs]
+            try:
+                sync_result = sync_headers.sync_record_headers(
+                    xlsx_path, factor_keys, output_keys
+                )
+                if sync_result.get("changed"):
+                    _log(
+                        f"record headers synced: {sync_result['old_headers']} "
+                        f"-> {sync_result['new_headers']} "
+                        f"(migrated {sync_result['migrated']} rows)"
+                    )
+                    _sync_status_hint(xlsx_path, sync_result)
+                else:
+                    _sync_status_hint(xlsx_path, sync_result)
+            except Exception as e:
+                _log(f"header sync failed: {e}")
+
             excel_io.write_status(
                 xlsx_path,
                 {
