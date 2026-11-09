@@ -9,3 +9,5 @@ watchdog>=3.0
 cvxpy>=1.5
 pymoo>=0.6
 shap>=0.45
+# Excel 自动保存/关闭/重开(可选,缺了会降级为手动)
+pywin32>=306

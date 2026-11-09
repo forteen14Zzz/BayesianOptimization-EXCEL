@@ -250,6 +250,9 @@ def process(project_dir: Path, phase: str) -> dict:
         except Exception:
             pass
 
+    # ⚠️ excel_closed 提到 try 外面 — except 分支也要用它来重开 Excel
+    excel_closed = False
+
     try:
         xlsx_path = _project_xlsx(project_dir)
         _log(f"phase={phase} project={project_dir.name} xlsx={xlsx_path.name}")
@@ -296,6 +299,20 @@ def process(project_dir: Path, phase: str) -> dict:
             return {"ok": True, "phase": phase, "elapsed_s": time.time() - started}
 
         if phase == PHASE_ASK:
+            # ⚠️ 先保存并关闭 Excel(如果开着)
+            # 否则:同事点按钮后 Excel 还开着 → Python 写盘 Permission denied
+            # 流程:Save → Close → 跑 BO(无锁)→ 跑完重新打开
+            try:
+                from . import excel_control
+                close_result = excel_control.save_and_close(xlsx_path)
+                if close_result.get("closed"):
+                    excel_closed = True
+                    _log(f"Excel auto-saved and closed: {close_result.get('reason')}")
+                elif close_result.get("reason") not in ("workbook not open in Excel",):
+                    _log(f"Excel close skipped: {close_result.get('reason')}")
+            except Exception as e:
+                _log(f"Excel auto-close failed (continue anyway): {e}")
+
             cfg = excel_io.read_config(xlsx_path)
             factor_keys = [f.key for f in cfg.factors]
             output_keys = [o.key for o in cfg.outputs]
@@ -406,18 +423,44 @@ def process(project_dir: Path, phase: str) -> dict:
                     "error": "",
                 },
             )
+            # ⚠️ 跑完了 → 重新打开 Excel(如果之前关了)
+            if excel_closed:
+                try:
+                    from . import excel_control
+                    reopen_result = excel_control.reopen(xlsx_path)
+                    _log(f"Excel reopened: {reopen_result.get('reason')}")
+                except Exception as e:
+                    _log(f"Excel reopen failed: {e}")
+
             return {
                 "ok": True,
                 "phase": phase,
                 "elapsed_s": time.time() - started,
                 "n_candidates": len(candidates),
                 "cache": str(cache_path),
+                "excel_reopened": excel_closed,
             }
 
         if phase == PHASE_REFRESH:
+            # ⚠️ 先保存并关闭 Excel(它要写主 xlsx)
+            try:
+                from . import excel_control
+                close_result = excel_control.save_and_close(xlsx_path)
+                if close_result.get("closed"):
+                    excel_closed = True
+                    _log(f"Excel auto-saved and closed: {close_result.get('reason')}")
+            except Exception as e:
+                _log(f"Excel auto-close failed (continue anyway): {e}")
+
             latest = recommender.find_latest_cache(project_dir)
             if latest is None:
                 _log("refresh: no cache file")
+                if excel_closed:
+                    try:
+                        from . import excel_control
+                        excel_control.reopen(xlsx_path)
+                    except Exception:
+                        pass
                 return {"ok": False, "phase": phase, "error": "no cache file"}
             # 算 round
             existing = excel_io.read_records(xlsx_path, [f.key for f in excel_io.read_config(xlsx_path).factors], [o.key for o in excel_io.read_config(xlsx_path).outputs])
@@ -425,17 +468,40 @@ def process(project_dir: Path, phase: str) -> dict:
             round_num = (len(existing) // max(1, cfg.strategy.batch_size)) + 1
             # ⚠️ 用 safe 版本(atomic write,Excel 开着也能跑)
             result = recommender.merge_cache_to_dashboard_safe(project_dir, xlsx_path, latest, round_num)
+
+            # ⚠️ 重新打开 Excel
+            if excel_closed:
+                try:
+                    from . import excel_control
+                    excel_control.reopen(xlsx_path)
+                except Exception as e:
+                    _log(f"Excel reopen failed: {e}")
+
             if not result.get("ok"):
                 _log(f"refresh failed: {result.get('error')}")
                 return {"ok": False, "phase": phase, "error": result.get("error"), "elapsed_s": time.time() - started}
             _log(f"refreshed dashboard from {latest.name}")
-            return {"ok": True, "phase": phase, "elapsed_s": time.time() - started, "from": latest.name}
+            return {
+                "ok": True,
+                "phase": phase,
+                "elapsed_s": time.time() - started,
+                "from": latest.name,
+                "excel_reopened": excel_closed,
+            }
 
         return {"ok": False, "phase": phase, "error": f"unknown phase {phase!r}"}
 
     except Exception as e:
         tb = traceback.format_exc()
         _log(f"ERROR phase={phase}: {e}\n{tb}")
+        # ⚠️ 出错了也要把 Excel 重开 — 否则同事的工作窗口凭空消失
+        if excel_closed:
+            try:
+                from . import excel_control
+                excel_control.reopen(_project_xlsx(project_dir))
+                _log("Excel reopened after error")
+            except Exception:
+                pass
         # 写 status 错误
         try:
             excel_io.write_status(
