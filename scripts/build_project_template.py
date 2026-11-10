@@ -314,8 +314,8 @@ def build_config_sheet(wb: Workbook) -> None:
         ("采集函数", "qLogEI", "qLogEI;qLogNEI;qEI;qUCB", "标准 EI(默认)"),
         ("最少初始点数", 5, "≥3", "数据 < 此值用随机采样"),
         ("批大小", 3, "1-10", "每轮推荐的实验数"),
-        ("收敛阈值", 0.01, "0.001-0.1", "最近 N 轮 rolling best 提升 < 此值视为收敛"),
-        ("收敛窗口", 5, "3-10", "看最近几轮"),
+        ("收敛阈值", 0.01, "0.001-0.1", "最近 N 个实验内最好成绩提升 < 此值 → 判为收敛"),
+        ("收敛窗口", 5, "3-20", "看最近几个**实验**(不是轮次!batch_size=3 一轮=3 个实验)"),
         ("存模型", "FALSE", "TRUE;FALSE", "勾选后 models/ 留 GP 快照"),
     ]
     for i, (k, v, opt, desc) in enumerate(strategy_rows):

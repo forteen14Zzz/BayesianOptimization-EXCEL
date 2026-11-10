@@ -413,6 +413,23 @@ def process(project_dir: Path, phase: str) -> dict:
 
             _log(f"BO produced {len(candidates)} candidates")
 
+            # ⚠️ 收敛判定(参考 BoFire 官方 ObjectiveImprovementCriterion)
+            # 公式: b_N - b_{N-n_lookback} < min_improvement → 收敛
+            # 阈值 = 收敛阈值,窗口 = 收敛窗口(单位:实验数)
+            try:
+                from .convergence import evaluate_convergence
+
+                conv = evaluate_convergence(valid_records, cfg)
+                _log(f"convergence: {conv.message}")
+                _log(
+                    f"convergence detail: best={conv.best_so_far}, "
+                    f"baseline={conv.baseline}, improvement={conv.improvement}, "
+                    f"n_exp={conv.n_experiments}"
+                )
+            except Exception as e:
+                _log(f"convergence evaluation failed (continue anyway): {e}")
+                conv = None
+
             # 写 .cache
             cache_path = recommender.write_recommend_cache(
                 project_dir,
@@ -444,7 +461,15 @@ def process(project_dir: Path, phase: str) -> dict:
                     "round": round_num,
                     "n_data": len(valid_records),
                     "last_bo_at": datetime.now().isoformat(timespec="seconds"),
-                    "convergence_msg": "⏳ 暂无收敛数据" if len(valid_records) < cfg.strategy.n_initial else "✅ 收敛评估中",
+                    "convergence_msg": (
+                        conv.message
+                        if conv is not None
+                        else (
+                            "⏳ 暂无收敛数据"
+                            if len(valid_records) < cfg.strategy.n_initial
+                            else "✅ 收敛评估中"
+                        )
+                    ),
                     "error": "",
                 },
             )
@@ -491,8 +516,22 @@ def process(project_dir: Path, phase: str) -> dict:
             existing = excel_io.read_records(xlsx_path, [f.key for f in excel_io.read_config(xlsx_path).factors], [o.key for o in excel_io.read_config(xlsx_path).outputs])
             cfg = excel_io.read_config(xlsx_path)
             round_num = (len(existing) // max(1, cfg.strategy.batch_size)) + 1
+            # ⚠️ 收敛曲线(参考 BoFire 官方公式)
+            convergence_curve = None
+            try:
+                from .convergence import evaluate_convergence
+
+                valid = [r for r in existing if r.valid == 1]
+                conv = evaluate_convergence(valid, cfg)
+                convergence_curve = conv.curve
+                _log(f"convergence: {conv.message}")
+            except Exception as e:
+                _log(f"convergence evaluation failed (continue anyway): {e}")
             # ⚠️ 用 safe 版本(atomic write,Excel 开着也能跑)
-            result = recommender.merge_cache_to_dashboard_safe(project_dir, xlsx_path, latest, round_num)
+            result = recommender.merge_cache_to_dashboard_safe(
+                project_dir, xlsx_path, latest, round_num,
+                convergence_curve=convergence_curve,
+            )
 
             # ⚠️ 重新打开 Excel
             if excel_closed:

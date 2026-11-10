@@ -79,6 +79,7 @@ def merge_cache_to_dashboard(
     xlsx_path: Path,
     cache_path: Path,
     round_num: int,
+    convergence_curve: list[tuple] | None = None,
 ) -> None:
     """把 cache 推荐条件合并到 📊 看板。
 
@@ -207,6 +208,25 @@ def merge_cache_to_dashboard(
                 target.value = row[j]
             # actual_yield 列留空(让用户填实测)
 
+        # 2.5 收敛曲线(row 15-44)
+        # ⚠️ 数据来自 evaluate_convergence()(参考 BoFire 官方公式)
+        if convergence_curve:
+            from openpyxl.cell.cell import MergedCell
+
+            for r in range(15, 45):
+                for c in range(1, 5):
+                    cell = ws.cell(row=r, column=c)
+                    if isinstance(cell, MergedCell):
+                        continue
+                    cell.value = None
+
+            for i, point in enumerate(convergence_curve[:30]):
+                for j, v in enumerate(point):
+                    target = ws.cell(row=15 + i, column=j + 1)
+                    if isinstance(target, MergedCell):
+                        continue
+                    target.value = v
+
         # 3. 运行日志追加
         log_next = 76
         for r in range(76, ws.max_row + 1):
@@ -237,6 +257,7 @@ def merge_cache_to_dashboard_safe(
     xlsx_path: Path,
     cache_path: Path,
     round_num: int,
+    convergence_curve: list[tuple] | None = None,
 ) -> dict:
     """merge_cache_to_dashboard 的安全版本。
 
@@ -341,6 +362,25 @@ def merge_cache_to_dashboard_safe(
                     continue
                 target.value = row[j]
             # actual_yield 列留空(让用户填实测)
+
+        # 2.5 收敛曲线(row 15-44)
+        # ⚠️ 数据来自 evaluate_convergence()(参考 BoFire 官方公式)
+        if convergence_curve:
+            from openpyxl.cell.cell import MergedCell
+
+            for r in range(15, 45):
+                for c in range(1, 5):
+                    cell = ws.cell(row=r, column=c)
+                    if isinstance(cell, MergedCell):
+                        continue
+                    cell.value = None
+
+            for i, point in enumerate(convergence_curve[:30]):
+                for j, v in enumerate(point):
+                    target = ws.cell(row=15 + i, column=j + 1)
+                    if isinstance(target, MergedCell):
+                        continue
+                    target.value = v
 
         # 3. 运行日志追加
         log_next = 76
