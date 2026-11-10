@@ -81,6 +81,10 @@ python -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r install\req
 | `刷新看板.bat` | `[🔄 单独刷新]` | 只把 cache 合并到 📊 看板 |
 | `生成记录表头.bat` | `[📋 生成记录表头]` | 只按 ⚙️ 配置 重建 🧪 记录 表头 |
 
+按钮位置(每个项目 xlsx 里):
+- **🚀 开始** sheet row 15-20 — 全局入口
+- **⚙️ 配置** sheet 底部 row 37-42 — `🎬 操作` 区域(同事主要用这个:填完配置直接点)
+
 ---
 
 ## 验证安装

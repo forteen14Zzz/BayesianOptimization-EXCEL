@@ -30,6 +30,78 @@ BUTTON_TARGETS = [
     (20, 1, "生成记录表头", "生成记录表头.bat"),
 ]
 
+# ⚙️ 配置 sheet 底部的操作区(2026-11 加:填完配置直接点,不用跳回 🚀 开始)
+CONFIG_BUTTONS = [
+    (38, 1, "生成记录表头", "生成记录表头.bat"),
+    (40, 1, "启动 BO", "跑_BO_点这里.bat"),
+    (42, 1, "刷新", "刷新看板.bat"),
+]
+
+
+def _style_button(ws, row, col, label, bat_abs):
+    """写一个指向 bat 的按钮(真 hyperlink 对象 + 公式)。"""
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.worksheet.hyperlink import Hyperlink
+
+    cell = ws.cell(row=row, column=col)
+    cell.value = f'=HYPERLINK("{bat_abs}","{label}")'
+    cell.font = Font(name="微软雅黑", size=11, bold=True, color="FFFFFF")
+    cell.fill = PatternFill("solid", fgColor="70AD47")
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+    cell.hyperlink = Hyperlink(
+        ref=cell.coordinate,
+        target=bat_abs,
+        tooltip=label,
+    )
+    ws.row_dimensions[row].height = 28
+
+
+def _upgrade_config_sheet(ws, project_dir: Path) -> None:
+    """在 ⚙️ 配置 sheet 底部加 🎬 操作区(3 个按钮)。
+
+    ⚠️ 2026-11 用户反馈:「生成记录表头」放配置 sheet 里更顺手 ——
+    填完配置 → 点按钮 → 直接去 🧪 记录 填数据,不用跳回 🚀 开始。
+    """
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    HINT_FONT = Font(name="微软雅黑", size=9, italic=True, color="808080")
+
+    # 已存在就跳过
+    for r in range(1, 60):
+        for c in range(1, 12):
+            v = ws.cell(row=r, column=c).value
+            if isinstance(v, str) and "生成记录表头" in v and "HYPERLINK" in v:
+                print("  ℹ️ 配置 sheet 已有按钮,跳过")
+                return
+
+    # 操作区标题(r37)
+    title = ws.cell(row=37, column=1, value="🎬 操作")
+    title.font = Font(name="微软雅黑", size=11, bold=True, color="FFFFFF")
+    title.fill = PatternFill("solid", fgColor="4472C4")
+    title.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.merge_cells(start_row=37, end_row=37, start_column=1, end_column=8)
+    ws.row_dimensions[37].height = 22
+
+    hints = {
+        38: "(按上面的因子/目标重建 🧪 记录 表头 — 填完配置点这个,然后去 🧪 记录 填数据)",
+        40: "(一键跑 BO: 算新推荐 + 合并到 📊 看板,cmd 窗口会显示日志)",
+        42: "(仅把 cache 合并到 📊 看板,不跑 BO)",
+    }
+    labels = {
+        38: "📋 生成记录表头",
+        40: "🚀 启动 BO",
+        42: "🔄 单独刷新",
+    }
+
+    for row, col, keyword, bat_name in CONFIG_BUTTONS:
+        bat_abs = str((project_dir / bat_name).resolve())
+        _style_button(ws, row, col, labels[row], bat_abs)
+        print(f"  ➕ [⚙️ 配置] ({row},{col}) {labels[row]} → {bat_name}")
+
+        h = ws.cell(row=row + 1, column=1, value=hints[row])
+        h.font = HINT_FONT
+        ws.merge_cells(start_row=row + 1, end_row=row + 1, start_column=1, end_column=8)
+
 
 def upgrade(project_dir: Path) -> None:
     from openpyxl import load_workbook
@@ -99,6 +171,10 @@ def upgrade(project_dir: Path) -> None:
             tooltip=new_label,
         )
         print(f"  ✅ ({row},{col}) → {bat_name}  [{new_label}]")
+
+    # 3. ⚙️ 配置 sheet 底部也加操作区(填完配置直接点)
+    if "⚙️ 配置" in wb.sheetnames:
+        _upgrade_config_sheet(wb["⚙️ 配置"], project_dir)
 
     wb.save(str(xlsx))
     wb.close()

@@ -94,40 +94,42 @@ def init_project(project_name: str) -> Path:
 
 
 def _replace_button_placeholder(xlsx_path: Path, bat_paths: dict) -> int:
-    """把 🚀 开始 sheet 里的 {{BO_BAT}} / {{REFRESH_BAT}} / {{SYNC_BAT}} 占位符
+    """把 sheet 里的 {{BO_BAT}} / {{REFRESH_BAT}} / {{SYNC_BAT}} 占位符
     替换成各自的绝对路径。
 
     ⚠️ 每个按钮指向**独立的 bat 文件** — 表格软件打开 .bat 时参数会丢,
     所以路径里绝不能带 " refresh" / " sync" 这样的参数。
+
+    ⚠️ 扫**所有 sheet** — 2026-11 起 ⚙️ 配置 sheet 底部也有按钮。
     """
     from openpyxl import load_workbook
 
     wb = load_workbook(str(xlsx_path))
-    if "🚀 开始" not in wb.sheetnames:
-        wb.close()
-        return 0
-    ws = wb["🚀 开始"]
     replaced = 0
-    for r in range(1, 30):
-        for c in range(1, 9):
-            cell = ws.cell(row=r, column=c)
-            v = cell.value
-            if not (isinstance(v, str) and "{{" in v):
-                continue
-            hit = False
-            for placeholder, path in bat_paths.items():
-                if placeholder in v:
-                    bat_str = str(path)
-                    cell.value = v.replace(placeholder, bat_str)
-                    # ⚠️ hyperlink 对象的 target 必须是**纯文件路径**(不带参数)
-                    if cell.hyperlink is not None and cell.hyperlink.target:
-                        for ph in bat_paths:
-                            if ph in cell.hyperlink.target:
-                                cell.hyperlink.target = bat_str
-                    hit = True
-                    break
-            if hit:
-                replaced += 1
+    for sheet_name in wb.sheetnames:
+        if sheet_name == "_status":
+            continue
+        ws = wb[sheet_name]
+        for r in range(1, 60):
+            for c in range(1, 12):
+                cell = ws.cell(row=r, column=c)
+                v = cell.value
+                if not (isinstance(v, str) and "{{" in v):
+                    continue
+                hit = False
+                for placeholder, path in bat_paths.items():
+                    if placeholder in v:
+                        bat_str = str(path)
+                        cell.value = v.replace(placeholder, bat_str)
+                        # ⚠️ hyperlink 对象的 target 必须是**纯文件路径**(不带参数)
+                        if cell.hyperlink is not None and cell.hyperlink.target:
+                            for ph in bat_paths:
+                                if ph in cell.hyperlink.target:
+                                    cell.hyperlink.target = bat_str
+                        hit = True
+                        break
+                if hit:
+                    replaced += 1
     if replaced:
         wb.save(str(xlsx_path))
     wb.close()

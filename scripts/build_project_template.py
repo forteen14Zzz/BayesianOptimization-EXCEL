@@ -209,9 +209,10 @@ def build_start_sheet(wb: Workbook) -> None:
     ws.merge_cells("A19:H19")
 
     # 生成记录表头按钮 — 填完 ⚙️ 配置后点这个,🧪 记录 的表头就按配置生成好了
-    # (不用等 watchdog 触发,点了立刻生效)
+    # ⚠️ 2026-11:主要入口已移到 ⚙️ 配置 sheet 底部(填完配置直接点),
+    #    这里保留一个快捷入口,两个按钮指向同一个 bat。
     _button_cmd(ws, 20, 1, "📋 生成记录表头", "{{SYNC_BAT}}", link_target="{{SYNC_BAT}}")
-    ws["A21"] = "(按 ⚙️ 配置 的因子/目标重建 🧪 记录 表头 — 填完配置先点这个,再去 🧪 记录 填数据)"
+    ws["A21"] = "(快捷入口 — 也可以直接在 ⚙️ 配置 sheet 底部点这个)"
     ws["A21"].font = HINT_FONT
     ws.merge_cells("A21:H21")
 
@@ -356,6 +357,30 @@ def build_config_sheet(wb: Workbook) -> None:
     dv_constraint = DataValidation(type="list", formula1='"linear_inequality,linear_equality"', allow_blank=True)
     ws.add_data_validation(dv_constraint)
     dv_constraint.add("B33:B35")
+
+    # --- 🎬 操作区:填完配置直接在这里点按钮 ---
+    # ⚠️ 2026-11 用户反馈:「生成记录表头」按钮放在配置 sheet 里更顺手 —
+    #    填完配置 → 点按钮 → 直接去 🧪 记录 填数据,不用跳回 🚀 开始
+    _style_section(ws, 37, 1, "🎬 操作", span=8)
+
+    _button_cmd(ws, 38, 1, "📋 生成记录表头", "{{SYNC_BAT}}", link_target="{{SYNC_BAT}}")
+    ws["A39"] = "(按上面的因子/目标重建 🧪 记录 表头 — 填完配置点这个,然后去 🧪 记录 填数据)"
+    ws["A39"].font = HINT_FONT
+    ws.merge_cells("A39:H39")
+
+    _button_cmd(ws, 40, 1, "🚀 启动 BO", "{{BO_BAT}}", link_target="{{BO_BAT}}")
+    ws["A41"] = "(一键跑 BO: 算新推荐 + 合并到 📊 看板,cmd 窗口会显示日志)"
+    ws["A41"].font = HINT_FONT
+    ws.merge_cells("A41:H41")
+
+    _button_cmd(ws, 42, 1, "🔄 单独刷新", "{{REFRESH_BAT}}", link_target="{{REFRESH_BAT}}")
+    ws["A43"] = "(仅把 cache 合并到 📊 看板,不跑 BO)"
+    ws["A43"].font = HINT_FONT
+    ws.merge_cells("A43:H43")
+
+    ws.row_dimensions[38].height = 28
+    ws.row_dimensions[40].height = 28
+    ws.row_dimensions[42].height = 28
 
 
 def build_record_sheet(wb: Workbook) -> None:
