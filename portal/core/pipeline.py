@@ -518,20 +518,33 @@ def process(project_dir: Path, phase: str) -> dict:
             round_num = (len(existing) // max(1, cfg.strategy.batch_size)) + 1
             # ⚠️ 收敛曲线(参考 BoFire 官方公式)
             convergence_curve = None
+            convergence_msg = None
             try:
                 from .convergence import evaluate_convergence
 
                 valid = [r for r in existing if r.valid == 1]
                 conv = evaluate_convergence(valid, cfg)
                 convergence_curve = conv.curve
+                convergence_msg = conv.message
                 _log(f"convergence: {conv.message}")
             except Exception as e:
                 _log(f"convergence evaluation failed (continue anyway): {e}")
+
             # ⚠️ 用 safe 版本(atomic write,Excel 开着也能跑)
             result = recommender.merge_cache_to_dashboard_safe(
                 project_dir, xlsx_path, latest, round_num,
                 convergence_curve=convergence_curve,
             )
+
+            # ⚠️ 更新 _status 的收敛提示(带具体数字)
+            if convergence_msg:
+                try:
+                    excel_io.write_status(
+                        xlsx_path,
+                        {"convergence_msg": convergence_msg},
+                    )
+                except Exception as e:
+                    _log(f"status update failed (continue anyway): {e}")
 
             # ⚠️ 重新打开 Excel
             if excel_closed:

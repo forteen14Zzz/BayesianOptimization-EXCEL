@@ -160,6 +160,7 @@ def _sobo_ask(
             domain=domain,
             acquisition_function=acf_obj,
             seed=42,  # 固定种子保证可复现
+            convergence_criterion=_build_convergence_criterion(config),
         )
         # ⚠️ BoFire 0.4.1: from_spec(data_model=...) 或直接 SoboStrategy(data_model=...)
         strat = SoboStrategyImpl(data_model=sobo_dm)
@@ -224,6 +225,44 @@ def _sobo_ask(
 
 
 # ---------- 工具 ----------
+def _build_convergence_criterion(config: Any) -> Any | None:
+    """按配置构造 BoFire 官方 ObjectiveImprovementCriterion。
+
+    ⚠️ 官方模块 `bofire.data_models.strategies.convergence_criteria` 是
+    **bofire 0.5.0** 才有的(0.4.1 没有)→ 装 0.4.1 时优雅降级为 None。
+
+    官方公式: b_N - b_{N-n_lookback} < min_improvement → 收敛
+    我们的配置:
+        收敛阈值 ≡ min_improvement
+        收敛窗口 ≡ n_lookback(单位:实验数)
+    """
+    try:
+        from bofire.data_models.strategies.convergence_criteria.api import (
+            ObjectiveImprovementCriterion,
+        )
+    except ImportError:
+        # bofire < 0.5.0 — 没有官方模块
+        return None
+
+    threshold = float(getattr(config.strategy, "convergence_threshold", 0.01) or 0.01)
+    window = int(getattr(config.strategy, "convergence_window", 5) or 5)
+    try:
+        criterion = ObjectiveImprovementCriterion(
+            min_improvement=threshold,
+            n_lookback=window,
+        )
+    except Exception:
+        # 参数不合法(比如 threshold=0)→ 不挂 criterion,不影响 BO 本身
+        return None
+
+    # ⚠️ 官方判据的适用性由 strategy 在构造时校验,不适配会抛错。
+    # 单目标才挂(我们的 converge 判定本身也支持多目标,走本地实现)。
+    if len(getattr(config, "outputs", [])) > 1:
+        return None
+
+    return criterion
+
+
 def _df_to_candidates(df: Any, domain: Any, trial_id_start: int) -> list[Candidate]:
     """把 BoFire ask() 返回的 DataFrame 转 Candidate 列表。
 

@@ -208,24 +208,39 @@ def merge_cache_to_dashboard(
                 target.value = row[j]
             # actual_yield 列留空(让用户填实测)
 
-        # 2.5 收敛曲线(row 15-44)
+        # 2.5 收敛曲线
         # ⚠️ 数据来自 evaluate_convergence()(参考 BoFire 官方公式)
+        # ⚠️ **动态定位表头行** — 模板布局变了(r19 而不是 r15),
+        #    写死行号会覆盖本轮推荐区!
         if convergence_curve:
             from openpyxl.cell.cell import MergedCell
 
-            for r in range(15, 45):
-                for c in range(1, 5):
-                    cell = ws.cell(row=r, column=c)
-                    if isinstance(cell, MergedCell):
-                        continue
-                    cell.value = None
+            # 找表头行:找 "best_so_far" 那一行
+            curve_header_row = None
+            for r in range(1, min(ws.max_row + 1, 60)):
+                v = ws.cell(row=r, column=2).value
+                if isinstance(v, str) and "best_so_far" in v:
+                    curve_header_row = r
+                    break
 
-            for i, point in enumerate(convergence_curve[:30]):
-                for j, v in enumerate(point):
-                    target = ws.cell(row=15 + i, column=j + 1)
-                    if isinstance(target, MergedCell):
-                        continue
-                    target.value = v
+            if curve_header_row is None:
+                print("⚠️ 看板找不到收敛曲线表头,跳过写入")
+            else:
+                data_start = curve_header_row + 1
+                # 清空旧数据(最多 30 行)
+                for r in range(data_start, data_start + 30):
+                    for c in range(1, 5):
+                        cell = ws.cell(row=r, column=c)
+                        if isinstance(cell, MergedCell):
+                            continue
+                        cell.value = None
+
+                for i, point in enumerate(convergence_curve[:30]):
+                    for j, v in enumerate(point):
+                        target = ws.cell(row=data_start + i, column=j + 1)
+                        if isinstance(target, MergedCell):
+                            continue
+                        target.value = v
 
         # 3. 运行日志追加
         log_next = 76
@@ -363,24 +378,39 @@ def merge_cache_to_dashboard_safe(
                 target.value = row[j]
             # actual_yield 列留空(让用户填实测)
 
-        # 2.5 收敛曲线(row 15-44)
+        # 2.5 收敛曲线
         # ⚠️ 数据来自 evaluate_convergence()(参考 BoFire 官方公式)
+        # ⚠️ **动态定位表头行** — 模板布局变了(r19 而不是 r15),
+        #    写死行号会覆盖本轮推荐区!
         if convergence_curve:
             from openpyxl.cell.cell import MergedCell
 
-            for r in range(15, 45):
-                for c in range(1, 5):
-                    cell = ws.cell(row=r, column=c)
-                    if isinstance(cell, MergedCell):
-                        continue
-                    cell.value = None
+            # 找表头行:找 "best_so_far" 那一行
+            curve_header_row = None
+            for r in range(1, min(ws.max_row + 1, 60)):
+                v = ws.cell(row=r, column=2).value
+                if isinstance(v, str) and "best_so_far" in v:
+                    curve_header_row = r
+                    break
 
-            for i, point in enumerate(convergence_curve[:30]):
-                for j, v in enumerate(point):
-                    target = ws.cell(row=15 + i, column=j + 1)
-                    if isinstance(target, MergedCell):
-                        continue
-                    target.value = v
+            if curve_header_row is None:
+                print("⚠️ 看板找不到收敛曲线表头,跳过写入")
+            else:
+                data_start = curve_header_row + 1
+                # 清空旧数据(最多 30 行)
+                for r in range(data_start, data_start + 30):
+                    for c in range(1, 5):
+                        cell = ws.cell(row=r, column=c)
+                        if isinstance(cell, MergedCell):
+                            continue
+                        cell.value = None
+
+                for i, point in enumerate(convergence_curve[:30]):
+                    for j, v in enumerate(point):
+                        target = ws.cell(row=data_start + i, column=j + 1)
+                        if isinstance(target, MergedCell):
+                            continue
+                        target.value = v
 
         # 3. 运行日志追加
         log_next = 76

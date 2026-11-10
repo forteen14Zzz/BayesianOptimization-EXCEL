@@ -1,10 +1,13 @@
-bofire==0.4.1
-botorch>=0.15,<0.20
+# bofire 0.5.0 — 带官方 Convergence Criteria 模块
+#   bofire.data_models.strategies.convergence_criteria.api.ObjectiveImprovementCriterion
+# ⚠️ 0.5.0 要求 numpy<2.5.0 且 pandas>=3.0.0
+bofire[optimization]==0.5.0
+botorch>=0.18.1,<0.20
 openpyxl>=3.1
-pandas>=2.0
+pandas>=3.0.0
 pydantic>=2.5
 matplotlib>=3.7
-numpy>=1.24
+numpy>=1.24,<2.5.0
 watchdog>=3.0
 cvxpy>=1.5
 pymoo>=0.6

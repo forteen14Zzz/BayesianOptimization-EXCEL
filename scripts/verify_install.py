@@ -115,10 +115,13 @@ def test_start_watcher_content():
 def test_requirements_locked():
     """requirements.txt 锁版本。"""
     reqs = (ROOT / "install" / "requirements.txt").read_text(encoding="utf-8")
-    if "bofire==0.4.1" not in reqs:
-        fail("requirements.txt 未锁 bofire==0.4.1")
+    if "bofire[optimization]==0.5.0" not in reqs:
+        fail("requirements.txt 未锁 bofire[optimization]==0.5.0")
     if "botorch" not in reqs:
         fail("requirements.txt 未列 botorch")
+    # ⚠️ numpy<2.5.0 是 bofire 0.5.0 的硬要求,不能漏
+    if "numpy" not in reqs or "<2.5.0" not in reqs:
+        fail("requirements.txt 未约束 numpy<2.5.0(bofire 0.5.0 硬要求)")
     return True
 
 
