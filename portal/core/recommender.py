@@ -22,6 +22,75 @@ CACHE_DIR = ".cache"
 RECOMMEND_PREFIX = "recommend_"
 
 
+# ---------- 收敛图(PNG → 嵌入看板) ----------
+def _embed_convergence_plot(
+    ws,
+    project_dir: Path,
+    convergence_curve: list[tuple],
+    converged: bool = False,
+    threshold: float | None = None,
+    header_row: int | None = None,
+) -> Path | None:
+    """画收敛趋势图并嵌入 📊 看板 的 G 列。
+
+    ⚠️ 失败不影响主流程(看板照样能写)—— 图只是锦上添花。
+    ⚠️ 嵌入前必须**清掉旧图**,否则每次 refresh 都叠一张。
+    """
+    if not convergence_curve:
+        return None
+
+    try:
+        from .convergence_plot import plot_convergence
+    except Exception:
+        return None
+
+    png_path = Path(project_dir) / CACHE_DIR / "convergence.png"
+    try:
+        png_path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return None
+
+    result = plot_convergence(
+        convergence_curve,
+        png_path,
+        converged=converged,
+        threshold=threshold,
+    )
+    if result is None:
+        return None
+
+    try:
+        from openpyxl.drawing.image import Image as XLImage
+    except Exception:
+        return result
+
+    try:
+        # ⚠️ 先删旧图 — 否则 refresh 一次叠一张,xlsx 越来越大
+        if hasattr(ws, "_images"):
+            ws._images = [
+                im for im in ws._images
+                if not (getattr(im, "anchor", None) is not None
+                        and getattr(im.anchor, "_from", None) is not None
+                        and im.anchor._from.col == 6)  # col 6 = G
+            ]
+
+        img = XLImage(str(result))
+        # 缩放到宽 ~640px(4 个标准列)
+        max_w = 640
+        if img.width and img.width > max_w:
+            ratio = max_w / img.width
+            img.width = int(img.width * ratio)
+            img.height = int(img.height * ratio)
+
+        # 锚点:G 列,收敛表头行下方
+        anchor_row = (header_row + 1) if header_row else 20
+        img.anchor = f"G{anchor_row}"
+        ws.add_image(img)
+        return result
+    except Exception:
+        return result
+
+
 # ---------- Cache 单文件 ----------
 def write_recommend_cache(
     project_dir: Path,
@@ -80,6 +149,8 @@ def merge_cache_to_dashboard(
     cache_path: Path,
     round_num: int,
     convergence_curve: list[tuple] | None = None,
+    converged: bool = False,
+    threshold: float | None = None,
 ) -> None:
     """把 cache 推荐条件合并到 📊 看板。
 
@@ -242,6 +313,16 @@ def merge_cache_to_dashboard(
                             continue
                         target.value = v
 
+                # 2.6 收敛趋势图(PNG 嵌到 G 列)
+                _embed_convergence_plot(
+                    ws,
+                    Path(project_dir),
+                    convergence_curve,
+                    converged=converged,
+                    threshold=threshold,
+                    header_row=curve_header_row,
+                )
+
         # 3. 运行日志追加
         log_next = 76
         for r in range(76, ws.max_row + 1):
@@ -273,6 +354,8 @@ def merge_cache_to_dashboard_safe(
     cache_path: Path,
     round_num: int,
     convergence_curve: list[tuple] | None = None,
+    converged: bool = False,
+    threshold: float | None = None,
 ) -> dict:
     """merge_cache_to_dashboard 的安全版本。
 
@@ -411,6 +494,16 @@ def merge_cache_to_dashboard_safe(
                         if isinstance(target, MergedCell):
                             continue
                         target.value = v
+
+                # 2.6 收敛趋势图(PNG 嵌到 G 列)
+                _embed_convergence_plot(
+                    ws,
+                    Path(project_dir),
+                    convergence_curve,
+                    converged=converged,
+                    threshold=threshold,
+                    header_row=curve_header_row,
+                )
 
         # 3. 运行日志追加
         log_next = 76

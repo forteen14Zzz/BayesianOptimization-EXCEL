@@ -519,6 +519,8 @@ def process(project_dir: Path, phase: str) -> dict:
             # ⚠️ 收敛曲线(参考 BoFire 官方公式)
             convergence_curve = None
             convergence_msg = None
+            converged = False
+            threshold = float(getattr(cfg.strategy, "convergence_threshold", 0.01) or 0.01)
             try:
                 from .convergence import evaluate_convergence
 
@@ -526,6 +528,7 @@ def process(project_dir: Path, phase: str) -> dict:
                 conv = evaluate_convergence(valid, cfg)
                 convergence_curve = conv.curve
                 convergence_msg = conv.message
+                converged = conv.converged
                 _log(f"convergence: {conv.message}")
             except Exception as e:
                 _log(f"convergence evaluation failed (continue anyway): {e}")
@@ -534,6 +537,8 @@ def process(project_dir: Path, phase: str) -> dict:
             result = recommender.merge_cache_to_dashboard_safe(
                 project_dir, xlsx_path, latest, round_num,
                 convergence_curve=convergence_curve,
+                converged=converged,
+                threshold=threshold,
             )
 
             # ⚠️ 更新 _status 的收敛提示(带具体数字)
