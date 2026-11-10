@@ -48,6 +48,41 @@ python -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r install\req
 
 ---
 
+## 表格软件:WPS 还是 Excel?
+
+**都支持**,程序会自动识别:
+- **WPS 表格**(同事实际用的)→ COM ProgID `Ket.Application`
+- **Microsoft Excel** → COM ProgID `Excel.Application`
+
+自动保存/关闭/重开依赖 `pywin32`,它在 `requirements.txt` 里,正常装机就会装上。
+
+⚠️ **WPS 需要开启 COM 支持**(默认是开的):
+> WPS 表格 → 菜单「文件」→「选项」→「其他选项」→「高级」→ 勾选 **「启用 WPS 表格 COM 组件」**(有的版本在「系统」标签页)
+
+没开的话:点按钮后表格不会自动关闭,程序会报 `Permission denied`,让同事**手工关掉表格再点按钮**即可(不影响其他功能)。
+
+---
+
+## ⚠️ 关于按钮的三个坑(2026-11 实测)
+
+给 IT 的说明,避免重复排查:
+
+| 坑 | 现象 | 本项目怎么绕的 |
+|----|------|----------------|
+| **相对路径失效** | 点了按钮没反应 | 所有按钮用**绝对路径**(`E:\bofire\projects\<项目>\*.bat`) |
+| **bat 参数丢失** | 点 [生成记录表头] 却跑了 BO | 每个按钮一个**独立 bat 文件**,路径里不带参数 |
+| **只写 `=HYPERLINK()` 公式** | 表格软件不认这是链接(`Hyperlinks.Count=0`) | 同时写真 `cell.hyperlink` 对象 |
+
+3 个独立 bat:
+
+| bat | 对应按钮 | 干什么 |
+|-----|---------|--------|
+| `跑_BO_点这里.bat` | `[🚀 启动 BO]` | ask(算推荐) + refresh(合并到看板) |
+| `刷新看板.bat` | `[🔄 单独刷新]` | 只把 cache 合并到 📊 看板 |
+| `生成记录表头.bat` | `[📋 生成记录表头]` | 只按 ⚙️ 配置 重建 🧪 记录 表头 |
+
+---
+
 ## 验证安装
 
 ### 方法 1:看 demo Excel
