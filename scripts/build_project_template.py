@@ -101,10 +101,10 @@ def _button(ws, row, col, label, target_sheet):
     c.border = THIN_BORDER
 
 
-def _button_cmd(ws, row, col, label, command):
+def _button_cmd(ws, row, col, label, command, link_target: str | None = None):
     """按钮: 点击执行 .bat。
 
-    ⚠️ 两个关键点(2026-10-08 实测):
+    ⚠️ 三个关键点(2026-10 / 2026-11 实测):
 
     1. **绝对路径** — Excel 解析相对路径用 Excel 当前工作目录,
        不是 xlsx 所在目录 → 相对路径必失效。用占位符 {{BO_BAT}},
@@ -114,17 +114,24 @@ def _button_cmd(ws, row, col, label, command):
        Excel 打开后 `Range.Hyperlinks.Count` = 0,不认这是超链接。
        必须同时设 `cell.hyperlink = Hyperlink(...)`,Excel 才会
        把它当可点击链接处理。
+
+    3. **不带参数** — Excel 打开 .bat 时参数可能丢失(实测同事项目
+       点 [📋 生成记录表头] 却跑了 ask)。所以每个按钮对应一个
+       独立的 bat 文件,路径里没有参数。
+       → 用 {{BO_BAT}} / {{REFRESH_BAT}} / {{SYNC_BAT}} 三个占位符。
     """
     from openpyxl.worksheet.hyperlink import Hyperlink
 
     safe_label = label.replace('"', '""')
     safe_href = command.replace('"', '""')
+    # hyperlink.target 用纯路径(不带参数)
+    target = (link_target or command).replace('"', '""')
 
     c = ws.cell(row=row, column=col, value=f'=HYPERLINK("{safe_href}","{safe_label}")')
     # ⚠️ 同时写真 hyperlink 对象,让 Excel 认出这是链接
     c.hyperlink = Hyperlink(
         ref=c.coordinate,
-        target=safe_href,
+        target=target,
         tooltip=label,
     )
     c.font = BUTTON_FONT
@@ -187,21 +194,23 @@ def build_start_sheet(wb: Workbook) -> None:
 
     # 启动 BO 按钮 — 点击一键跑 ask + refresh
     # ⚠️ 用占位符 {{BO_BAT}},init_new_project.py 生成项目时替换成绝对路径
-    # (Excel 解析相对路径用的是 Excel 当前工作目录,不是 xlsx 目录 → 相对路径必失效)
-    _button_cmd(ws, 17, 1, "🚀 启动 BO", "{{BO_BAT}}")
+    # (WPS/Excel 解析相对路径用的是表格软件当前工作目录,不是 xlsx 目录 → 相对路径必失效)
+    # ⚠️ 每个按钮一个**独立 bat**(2026-11 实测:表格软件打开 .bat 时**参数会丢**,
+    #    点 [📋 生成记录表头] 却跑了 ask → 所以路径里绝不带参数)
+    _button_cmd(ws, 17, 1, "🚀 启动 BO", "{{BO_BAT}}", link_target="{{BO_BAT}}")
     ws["A18"] = "(一键跑 BO: 算新推荐 + 合并到 📊 看板,cmd 窗口会显示日志)"
     ws["A18"].font = HINT_FONT
     ws.merge_cells("A18:H18")
 
     # 单独 refresh 按钮 — 应急用(如果 📊 看板 没更新)
-    _button_cmd(ws, 17, 4, "🔄 单独刷新", "{{BO_BAT}} refresh")
+    _button_cmd(ws, 17, 4, "🔄 单独刷新", "{{REFRESH_BAT}}", link_target="{{REFRESH_BAT}}")
     ws["A19"] = "(仅把 cache 合并到 📊 看板,不跑 BO)"
     ws["A19"].font = HINT_FONT
     ws.merge_cells("A19:H19")
 
     # 生成记录表头按钮 — 填完 ⚙️ 配置后点这个,🧪 记录 的表头就按配置生成好了
     # (不用等 watchdog 触发,点了立刻生效)
-    _button_cmd(ws, 20, 1, "📋 生成记录表头", "{{BO_BAT}} sync")
+    _button_cmd(ws, 20, 1, "📋 生成记录表头", "{{SYNC_BAT}}", link_target="{{SYNC_BAT}}")
     ws["A21"] = "(按 ⚙️ 配置 的因子/目标重建 🧪 记录 表头 — 填完配置先点这个,再去 🧪 记录 填数据)"
     ws["A21"].font = HINT_FONT
     ws.merge_cells("A21:H21")

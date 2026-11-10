@@ -258,6 +258,17 @@ def process(project_dir: Path, phase: str) -> dict:
         _log(f"phase={phase} project={project_dir.name} xlsx={xlsx_path.name}")
 
         if phase == PHASE_VALIDATE:
+            # ⚠️ 先保存并关闭 Excel — validate 会写主 xlsx(同步表头)
+            # 同事点了 [📋 生成记录表头] 后 Excel 必须让位,否则 Permission denied
+            try:
+                from . import excel_control
+                close_result = excel_control.save_and_close(xlsx_path)
+                if close_result.get("closed"):
+                    excel_closed = True
+                    _log(f"Excel auto-saved and closed: {close_result.get('reason')}")
+            except Exception as e:
+                _log(f"Excel auto-close failed (continue anyway): {e}")
+
             cfg = excel_io.read_config(xlsx_path)
             _log(f"validate OK: {len(cfg.factors)} factors, {len(cfg.outputs)} outputs")
 
@@ -296,7 +307,21 @@ def process(project_dir: Path, phase: str) -> dict:
                     "error": "",
                 },
             )
-            return {"ok": True, "phase": phase, "elapsed_s": time.time() - started}
+            # ⚠️ 重新打开 Excel(如果之前关了)
+            if excel_closed:
+                try:
+                    from . import excel_control
+                    reopen_result = excel_control.reopen(xlsx_path)
+                    _log(f"Excel reopened: {reopen_result.get('reason')}")
+                except Exception as e:
+                    _log(f"Excel reopen failed: {e}")
+
+            return {
+                "ok": True,
+                "phase": phase,
+                "elapsed_s": time.time() - started,
+                "excel_reopened": excel_closed,
+            }
 
         if phase == PHASE_ASK:
             # ⚠️ 先保存并关闭 Excel(如果开着)
