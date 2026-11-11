@@ -83,7 +83,7 @@ def check_no_hardcoded():
     skip_dirs = {".git", ".pytest_cache", "__pycache__", ".cache"}
     # ⚠️ 排除本脚本 + 历史清理工具 — 它们自己就包含这些搜索关键词
     skip_names = {
-        self_name,
+        Path(__file__).name,
         "acceptance_check.py",
         "_scan_history.py",
         "scrub_history_content.py",
