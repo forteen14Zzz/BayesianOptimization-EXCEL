@@ -27,26 +27,40 @@ echo ============================================================
 echo.
 
 REM ---- find a usable python ----
-REM priority: Miniforge3 (bofire installed) > hermes venv > PATH
+REM priority: project venv > conda base > PATH
+REM (never hardcode a user-specific path - this file ships to other machines)
 set PYTHON_EXE=
-if exist "C:\Users\user\Miniforge3\python.exe" (
-    set "PYTHON_EXE=C:\Users\user\Miniforge3\python.exe"
+
+if exist "venv\Scripts\python.exe" (
+    set "PYTHON_EXE=venv\Scripts\python.exe"
     goto :found
 )
-if exist "C:\Users\user\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe" (
-    set "PYTHON_EXE=C:\Users\user\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe"
-    goto :found
-)
-for %%P in ("python.exe") do (
-    if exist %%~P (
-        set "PYTHON_EXE=%%~P"
-        goto :found
+
+REM 2) conda (bofire is often installed in conda base / miniforge)
+REM    ⚠️ `where conda` 的 ERRORLEVEL in "not found" case can still be 0,
+REM    so check `conda --version` output instead.
+for /f "tokens=*" %%V in ('conda --version 2^>nul') do (
+    if not "%%V"=="" (
+        for /f "tokens=*" %%P in ('conda run -n base python -c "import sys;print(sys.executable)" 2^>nul') do (
+            if not "%%P"=="" (
+                set "PYTHON_EXE=%%P"
+                goto :found
+            )
+        )
     )
+)
+
+where python >nul 2>&1
+if %ERRORLEVEL%==0 (
+    set "PYTHON_EXE=python"
+    goto :found
 )
 
 :found
 if "%PYTHON_EXE%"=="" (
-    echo [FAIL] No python found. Please contact IT.
+    echo [FAIL] No python found.
+    echo   - Option A: run install\install.bat first  ^(recommended^)
+    echo   - Option B: install Miniforge/Anaconda, make sure conda is on PATH.
     pause
     exit /b 1
 )
@@ -71,7 +85,7 @@ REM ---- check bofire (optional) ----
 %PYTHON_EXE% -c "import bofire" 2>nul
 if errorlevel 1 (
     echo [WARN] bofire not installed - BO will use random sampling.
-    echo        For smart GP-BO: %PYTHON_EXE% -m pip install bofire==0.4.1 botorch
+    echo        For smart GP-BO: pip install "bofire[optimization]==0.5.0"
     echo.
 )
 

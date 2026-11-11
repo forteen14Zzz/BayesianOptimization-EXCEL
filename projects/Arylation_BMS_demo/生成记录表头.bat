@@ -13,6 +13,7 @@ echo.
 
 set "PYTHONPATH=%PROJECT_DIR%\..\.."
 call :pick_python
+if "%PY%"=="" exit /b 1
 
 "%PY%" "portal/run.py" --project "projects/%PROJECT_NAME%" --phase validate
 if errorlevel 1 (
@@ -29,16 +30,40 @@ pause
 exit /b 0
 
 :pick_python
-set "MINIFORGE=C:\Users\user\Miniforge3\python.exe"
-if exist "%MINIFORGE%" (
-    set "PY=%MINIFORGE%"
+REM Find a python that has bofire installed.
+REM Order: local venv -> conda -> PATH. Never hardcode a user path.
+set "PY="
+
+REM 1) project-local venv (created by install\install.bat)
+if exist "venv\Scripts\python.exe" (
+    set "PY=venv\Scripts\python.exe"
     goto :eof
 )
-if exist "venv\Scripts\python.exe" (
-    call "venv\Scripts\activate.bat"
+
+REM 2) conda (bofire is often installed in conda base / miniforge)
+REM    ⚠️ `where conda` 的 ERRORLEVEL 在找不到时仍可能是 0(实测),
+REM    所以必须用 `conda --version` 的输出来判断 conda 是否真的可用。
+for /f "tokens=*" %%V in ('conda --version 2^>nul') do (
+    if not "%%V"=="" (
+        for /f "tokens=*" %%P in ('conda run -n base python -c "import sys;print(sys.executable)" 2^>nul') do (
+            if not "%%P"=="" (
+                set "PY=%%P"
+                goto :eof
+            )
+        )
+    )
+)
+
+REM 3) any python on PATH
+where python >nul 2>&1
+if %ERRORLEVEL%==0 (
     set "PY=python"
     goto :eof
 )
-echo [WARN] No Miniforge3 and no venv, using global python.
-set "PY=python"
-goto :eof
+
+echo [ERROR] No python found.
+REM ⚠️ 括号必须转义 ^( ^) — cmd 会把裸 ) 当成块结束符
+echo   - Option A: run install\install.bat to create venv\  ^(recommended^)
+echo   - Option B: install Miniforge/Anaconda, then: conda install bofire
+pause
+exit /b 1

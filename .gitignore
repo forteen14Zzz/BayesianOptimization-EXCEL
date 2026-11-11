@@ -55,6 +55,13 @@ results/
 !projects/Suzuki_2026Q4_demo/*.xlsx
 !projects/Arylation_BMS_demo/*.xlsx
 
+# ⚠️ 项目运行时产物 — 每次跑都变,且日志里带本机绝对路径
+projects/*/LOG.txt
+projects/*/.cache/
+projects/*/models/
+projects/*/*.bak
+~$*.xlsx
+
 # 环境
 .env
 .env.local
