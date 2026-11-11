@@ -74,21 +74,28 @@ def check_files():
 def check_no_hardcoded():
     print("\n[2] 无硬编码路径 / 敏感信息")
     patterns = {
-        "本机用户名": ["user", "C:\\\\Users\\\\user"],
-        "项目绝对路径": ["E:\\\\bofire", "/c/Users/user"],
+        "本机用户名": ["lenovo", "C:\\\\Users\\\\lenovo"],
+        "项目绝对路径": ["E:\\\\bofire", "/c/Users/lenovo"],
         "邮箱": ["@qq.com", "@163.com", "@gmail.com"],
         "密钥": ["api_key", "apikey", "password=", "secret_key"],
     }
     exts = {".py", ".md", ".bat", ".txt", ".json"}
     skip_dirs = {".git", ".pytest_cache", "__pycache__", ".cache"}
-    # ⚠️ 排除本脚本 — 它自己就包含这些搜索关键词
-    self_name = Path(__file__).name
+    # ⚠️ 排除本脚本 + 历史清理工具 — 它们自己就包含这些搜索关键词
+    skip_names = {
+        self_name,
+        "acceptance_check.py",
+        "_scan_history.py",
+        "scrub_history_content.py",
+        "rebuild_history_without.py",
+        "strip_sensitive_history.py",
+    }
     for label, pats in patterns.items():
         hits = []
         for f in ROOT.rglob("*"):
             if not f.is_file() or f.suffix not in exts:
                 continue
-            if f.name == self_name:
+            if f.name in skip_names:
                 continue
             if any(part in skip_dirs for part in f.parts):
                 continue
