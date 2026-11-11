@@ -199,6 +199,8 @@ Convergence Criteria 从 0.5.0 才有)。
 
 ## License & 致谢
 
+本项目采用 [MIT License](LICENSE)。
+
 - 算法来自 [BoFire](https://github.com/experimental-design/bofire) + [BoTorch](https://botorch.org/)
 - 数据集来自 [Princeton Shields + BMS Reaction Optimization Game](https://github.com/connorcoley/reaction-optimization-game)
 - 表格自动化:pywin32(WPS/Excel COM)
