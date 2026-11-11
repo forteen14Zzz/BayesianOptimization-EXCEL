@@ -149,9 +149,9 @@ def main():
     section("M2 验收通过 ✅")
     print("""
 下一步建议:
-  1. 把整个 <REPO>\\ 目录打包给 IT
+  1. 把整个项目目录打包给 IT
   2. IT 在新机器:
-     - 解压 → D:\\BOFIRELabPortal\\
+     - 解压到任意目录(例如 D:\\BOFIRELabPortal\\)
      - 双击 install\\install.bat(等 5-10 分钟)
      - 选 y 配开机启动
   3. 验证:打开 projects\\Suzuki_2026Q4_demo\\Suzuki_2026Q4_demo.xlsx
