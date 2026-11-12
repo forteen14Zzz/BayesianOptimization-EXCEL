@@ -85,9 +85,18 @@ class GitHub:
 
 
 def git(*args: str) -> str:
+    # ⚠️ core.quotepath=false — 否则中文文件名被转义成
+    #    "projects/\350\267\221_BO..." 这种八进制,读文件会找不到
     env = {**os.environ, "MSYS2_ARG_CONV_EXCL": "*", "MSYS_NO_PATHCONV": "1"}
     r = subprocess.run(
-        ["git", *args], cwd=str(ROOT), env=env, capture_output=True, text=True, timeout=300
+        ["git", "-c", "core.quotepath=false", *args],
+        cwd=str(ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=300,
     )
     if r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} 失败: {r.stderr[-300:]}")

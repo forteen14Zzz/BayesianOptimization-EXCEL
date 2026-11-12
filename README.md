@@ -33,21 +33,28 @@
 ### 1. 装环境
 
 需要 **Python 3.11+**(推荐 3.11 / 3.12)。
+检查:命令行敲 `python --version`。没有的话去 python.org 装,
+安装时**务必勾选 "Add Python to PATH"**。
+
+**方式 A — 不用命令行(推荐)**
+
+1. 在本页面点 **Code → Download ZIP**
+2. 解压到任意目录,例如 `D:\BOFIRELabPortal\`
+3. 双击 **`install\install.bat`** — 等 5-10 分钟(装依赖)
+
+**方式 B — 有 git 的话**
 
 ```bash
 git clone https://github.com/forteen14Zzz/BayesianOptimization-EXCEL.git
 cd BayesianOptimization-EXCEL
-install\install.bat          # Windows:双击也行
+install\install.bat
 ```
 
 装完会问是否配开机自启动(watcher,可选)。
 
-> 不想用 git?在 GitHub 页面点 **Code → Download ZIP**,解压后同样运行
-> `install\install.bat`。
-
 ### 2. 建项目
 
-双击 **`init_new_project.bat`**,输入项目名,比如 `Suzuki_2026Q4_张三`。
+双击 **`init_new_project.bat`**,输入项目名,比如 `Suzuki_2026Q4_张三`,回车。
 
 ### 3. 用
 
