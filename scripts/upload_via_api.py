@@ -94,6 +94,28 @@ def git(*args: str) -> str:
     return r.stdout
 
 
+def unquote_path(p: str) -> str:
+    """把 git 的 C-style 引号路径还原成真实路径。
+
+    ⚠️ `git ls-files` 对非 ASCII / 含空格的文件会输出
+       "\\346\\226\\260..." (八进制转义) 或带引号的 "路径" 形式,
+       直接当路径用会找不到文件。
+    """
+    p = p.strip()
+    if p.startswith('"') and p.endswith('"'):
+        p = p[1:-1]
+    if "\\" in p and all(
+        c in "01234567\\" for c in p if c != "\\"
+    ):
+        # 八进制转义 → 字节 → utf-8
+        try:
+            raw = bytes(int(x, 8) for x in p.split("\\") if x)
+            return raw.decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            pass
+    return p
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--token", required=True)
@@ -123,7 +145,7 @@ def main() -> int:
 
     # 3) 收集要上传的文件(git ls-files)
     print("[3/5] 收集文件...")
-    files = [f for f in git("ls-files").splitlines() if f.strip()]
+    files = [unquote_path(f) for f in git("ls-files").splitlines() if f.strip()]
     print(f"   {len(files)} 个文件")
 
     # 4) 上传 blob

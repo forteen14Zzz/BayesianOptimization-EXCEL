@@ -35,12 +35,15 @@
 需要 **Python 3.11+**(推荐 3.11 / 3.12)。
 
 ```bash
-git clone <this-repo>
-cd bofire
+git clone https://github.com/forteen14Zzz/BayesianOptimization-EXCEL.git
+cd BayesianOptimization-EXCEL
 install\install.bat          # Windows:双击也行
 ```
 
 装完会问是否配开机自启动(watcher,可选)。
+
+> 不想用 git?在 GitHub 页面点 **Code → Download ZIP**,解压后同样运行
+> `install\install.bat`。
 
 ### 2. 建项目
 
