@@ -286,6 +286,16 @@ def build_config_sheet(wb: Workbook) -> None:
     ws["C9"] = "TRUE"
     ws["F9"] = "甲苯;THF;DMF;二氧六环"
 
+    # ⚠️ 提示:discrete 必须填 categories(否则会被当连续变量)
+    ws["H5"] = "💡 type 说明"
+    ws["H5"].font = Font(name="微软雅黑", size=9, bold=True, color="808080")
+    ws["H6"] = "continuous: 填 low/high,连续可调"
+    ws["H7"] = "discrete: 填 categories(数字;分隔),只能取这几个值"
+    ws["H8"] = "categorical: 填 categories(文字;分隔)"
+    ws["H9"] = "⚠️ discrete 不填 categories 会被当连续变量!"
+    for r in range(6, 10):
+        ws[f"H{r}"].font = Font(name="微软雅黑", size=8, color="C00000" if r == 9 else "808080")
+
     # --- Outputs ---
     _style_section(ws, 12, 1, "🎯 实验目标 (Outputs)", span=8)
     _style_table_header(ws, 13, ["key", "direction", "target", "lower_bound", "upper_bound", "unit", "", ""])

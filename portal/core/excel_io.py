@@ -67,7 +67,27 @@ class FactorSpec(BaseModel):
                 raise ValueError(f"{self.key}: continuous 必须填 low 和 high")
             if self.low >= self.high:
                 raise ValueError(f"{self.key}: low 必须 < high")
-        # discrete 允许只填 categories(视为有序数)
+        # ⚠️ discrete 也必须填 categories ——
+        #    不填的话 BoFire 拿不到候选值,只能当连续变量处理
+        #    (实测:同事只填了 low/high,推荐出来的是连续值)
+        if self.type == "discrete":
+            if not self.categories:
+                raise ValueError(
+                    f"{self.key}: discrete 必须填 categories(用 ; 分隔),"
+                    f"比如 0.5;1.0;2.0;5.0 — "
+                    f"只填 low/high 的话会被当成连续变量"
+                )
+            if len(self.categories) < 2:
+                raise ValueError(f"{self.key}: 至少 2 个候选值,当前 {len(self.categories)} 个")
+            # 候选值必须能转 float
+            for c in self.categories:
+                try:
+                    float(c)
+                except (TypeError, ValueError) as e:
+                    raise ValueError(
+                        f"{self.key}: discrete 的候选值必须是数字(当前 {c!r}) — "
+                        f"非数字的离散选项请用 categorical"
+                    ) from e
         if self.type in ("categorical", "categorical_descriptor", "categorical_molecular"):
             if not self.categories:
                 raise ValueError(f"{self.key}: {self.type} 必须填 categories(用 ; 分隔)")
@@ -146,13 +166,74 @@ def _col_idx(ws: Worksheet, header_value: str) -> int:
     raise KeyError(f"找不到表头 {header_value!r}")
 
 
-def _read_kv(ws: Worksheet, header_row: int, start_data_row: int, stop_at_blank: bool = True) -> list[dict[str, Any]]:
+# ⚙️ 配置 sheet 里三个区域的标题标记(第一个词是 emoji,稳定不变)
+# ⚠️ 之前用**硬编码行号**(因子 r5/输出 r13/策略 r20)定位,
+#    同事一改配置(加因子/插行)后面两个区就错位 ——
+#    要么报错("Outputs 表为空"),要么**静默读错**
+#    (因子表的 type 列读到别的区的值 → discrete 被当 continuous)。
+#    改成按标题文字定位,行数随便变。
+_SECTION_MARKERS = {
+    "factors": "实验因子",
+    "outputs": "实验目标",
+    "strategy": "BO 策略",
+    "constraints": "约束",
+}
+
+# 兜底:模板默认的行号(标题找不到时才用)
+_FALLBACK_ROWS = {
+    "factors": (5, 6),
+    "outputs": (13, 14),
+    "strategy": (20, 21),
+    "constraints": (32, 33),
+}
+
+
+def _find_section(ws: Worksheet, section: str) -> tuple[int, int]:
+    """找到某个区域的 (header_row, start_data_row)。
+
+    策略:扫 A 列找标题(标题里有标记文字),标题的**下一行**是表头,
+    表头的**下一行**是数据起点。找不到就用模板默认行号。
+    """
+    marker = _SECTION_MARKERS[section]
+    max_r = min(ws.max_row, 80)
+
+    for r in range(1, max_r + 1):
+        v = ws.cell(row=r, column=1).value
+        if v is None:
+            continue
+        text = str(v)
+        if marker in text:
+            header_row = r + 1
+            start = r + 2
+            # 表头行确认(有 "key" 之类才认)
+            hv = ws.cell(row=header_row, column=1).value
+            if hv is None or str(hv).strip().lower() != "key":
+                # 标题和数据之间隔了空行 → 往下找 "key" 行
+                for rr in range(header_row, min(header_row + 5, max_r + 1)):
+                    kv = ws.cell(row=rr, column=1).value
+                    if kv is not None and str(kv).strip().lower() == "key":
+                        return rr, rr + 1
+            return header_row, start
+
+    return _FALLBACK_ROWS[section]
+
+
+def _read_kv(
+    ws: Worksheet,
+    header_row: int,
+    start_data_row: int,
+    stop_at_blank: bool = True,
+    stop_markers: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
     """读 key-value 型 sheet:从 header_row 读表头,从 start_data_row 起读行。
 
     返回 list[dict],每个 dict 是 1 行,key 是表头值。
 
     参数:
       stop_at_blank: True (默认) — 遇到完全空行就停止(避免读到下一个 region 的标题)
+      stop_markers: 遇到 A 列含这些文字的行就停(下一个区域的标题)。
+        ⚠️ 比 stop_at_blank 更可靠 —— 同事在因子区中间留空行时,
+        因子不该被截断,但下一个区的标题要被挡住。
     """
     headers: list[str] = []
     for c in range(1, ws.max_column + 1):
@@ -162,6 +243,13 @@ def _read_kv(ws: Worksheet, header_row: int, start_data_row: int, stop_at_blank:
         headers.append(str(v).strip())
     rows = []
     for r in range(start_data_row, ws.max_row + 1):
+        # ⚠️ 下一个区域的标题 → 停
+        if stop_markers:
+            a_val = ws.cell(row=r, column=1).value
+            if a_val is not None:
+                a_text = str(a_val)
+                if any(m in a_text for m in stop_markers):
+                    break
         row = {}
         all_blank = True
         for i, h in enumerate(headers):
@@ -196,15 +284,40 @@ def read_config(xlsx_path: Path) -> ConfigSheet:
             raise ValueError(f"xlsx 缺少 sheet: {CONFIG_SHEET!r}")
 
         ws = wb[CONFIG_SHEET]
-        # Factors 区:从 row=5 (header) 起, row=6 开始
-        # 找 header 行 — 我们建模板时 header 在 row=5
-        # 但用户可能改了位置;我们靠 "key" 关键字识别
-        # 这里简化: 假设模板结构稳定
-        factor_rows = _read_kv(ws, header_row=5, start_data_row=6)
-        # 输出区: row=13 header, 14 start
-        output_rows = _read_kv(ws, header_row=13, start_data_row=14)
-        # 策略区: row=20 header, 21 start
-        strategy_rows = _read_kv(ws, header_row=20, start_data_row=21)
+        # ⚠️ 各区域按**标题文字**定位,不用硬编码行号 ——
+        #    同事加因子/插行都不会错位(见 _find_section 注释)
+        f_hdr, f_start = _find_section(ws, "factors")
+        o_hdr, o_start = _find_section(ws, "outputs")
+        s_hdr, s_start = _find_section(ws, "strategy")
+
+        factor_rows = _read_kv(
+            ws,
+            header_row=f_hdr,
+            start_data_row=f_start,
+            stop_at_blank=False,  # ⚠️ 因子区中间有空行也不截断
+            stop_markers=(
+                _SECTION_MARKERS["outputs"],
+                _SECTION_MARKERS["strategy"],
+                _SECTION_MARKERS["constraints"],
+            ),
+        )
+        output_rows = _read_kv(
+            ws,
+            header_row=o_hdr,
+            start_data_row=o_start,
+            stop_at_blank=False,
+            stop_markers=(
+                _SECTION_MARKERS["strategy"],
+                _SECTION_MARKERS["constraints"],
+            ),
+        )
+        strategy_rows = _read_kv(
+            ws,
+            header_row=s_hdr,
+            start_data_row=s_start,
+            stop_at_blank=False,
+            stop_markers=(_SECTION_MARKERS["constraints"],),
+        )
 
         factors: list[FactorSpec] = []
         for row in factor_rows:

@@ -113,26 +113,33 @@ def build_input_features(factors: list[FactorSpec]) -> list[Any]:
                 ),
             )
         elif f.type == "discrete":
-            # 把 categories 转 float,包成 continuous(BoFire 0.4.1 DiscreteInput
-            # 仅 int,bounds 会被拒绝。
-            # workaround — 当 ranges 数值是连续值列表时 BoFire 不允许,只能走 continuous
-            # + 后处理 round。这里若 categories 全是 int,转 int 后用 continuous;
-            # 若有 float,用 off 最稳。
+            # ⚠️ BoFire 0.5.0 有原生 DiscreteInput(values=[...]) — 直接用!
+            # (0.4.1 没有,当时的 workaround 是 ContinuousInput + 事后 round,
+            #  但 round 后处理一直没实现 → 推荐出的是连续值)
             try:
                 values = sorted({float(v) for v in (f.categories or [])})  # type: ignore[union-attr]
             except (TypeError, ValueError) as e:
                 raise ValueError(f"{f.key}: discrete categories 必须可转 float: {e}") from e
             if not values:
                 raise ValueError(f"{f.key}: discrete 必须有 categories")
-            # BoFire 0.4.1 接受 ContinuousInput + 后处理;这里用 min/max 作 bounds
-            feats.append(
-                ContinuousInput(
-                    key=f.key,
-                    bounds=[float(min(values)), float(max(values))],
-                ),
-            )
-            # 保存离散值表供后处理用
-            f.notes = (f.notes or "") + f" | discrete_values={values}"
+            try:
+                from bofire.data_models.features.api import DiscreteInput
+
+                feats.append(
+                    DiscreteInput(
+                        key=f.key,
+                        values=values,
+                    ),
+                )
+            except ImportError:
+                # bofire < 0.5.0 — 退回 ContinuousInput + 事后 round
+                feats.append(
+                    ContinuousInput(
+                        key=f.key,
+                        bounds=[float(min(values)), float(max(values))],
+                    ),
+                )
+                f.notes = (f.notes or "") + f" | discrete_values={values}"
         elif f.type in ("categorical", "categorical_descriptor", "categorical_molecular"):
             # ⚠️ workaround #6: 不存在 CategoricalTaskInput, 用 CategoricalInput
             cats = f.categories or []

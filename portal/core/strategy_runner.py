@@ -96,7 +96,18 @@ def _pure_python_ask(config: Any, trial_id_start: int) -> list[Candidate]:
     for i in range(config.strategy.batch_size):
         factors: dict[str, Any] = {}
         for f in config.factors:
-            if f.type in ("continuous", "discrete"):
+            if f.type == "discrete":
+                # ⚠️ 离散因子必须从 categories 里挑,不能连续采样
+                cats = f.categories or []
+                try:
+                    vals = [float(v) for v in cats]
+                except (TypeError, ValueError):
+                    vals = []
+                if vals:
+                    factors[f.key] = random.choice(vals)
+                else:
+                    factors[f.key] = random.choice(cats) if cats else None
+            elif f.type == "continuous":
                 lo = float(f.low or 0.0)
                 hi = float(f.high or 1.0)
                 factors[f.key] = random.uniform(lo, hi)
